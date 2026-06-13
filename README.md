@@ -1,16 +1,97 @@
-# React + Vite
+# SakhiAI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Your Trusted Women's Safety & Health Companion
 
-Currently, two official plugins are available:
+SakhiAI is an AI-powered women's safety, wellness, and health platform designed to provide:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+* Emergency SOS Assistance
+* Cycle Tracking & Predictions
+* AI Health Guidance
+* Wellness Recommendations
+* Trusted Emergency Contacts
+* Location-Based Safety Support
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Problem Statement
 
-## Expanding the ESLint configuration
+Women often lack immediate access to reliable health guidance and emergency safety tools in one unified platform.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+SakhiAI aims to bridge this gap by combining health assistance, wellness tracking, and emergency preparedness into a single experience.
+
+---
+
+## Features
+
+### Health & Wellness
+
+* Cycle Tracker
+* Ovulation Prediction
+* Fertility Window Estimation
+* Health Tips
+* Mood Tracking
+
+### Safety
+
+* Emergency SOS
+* Emergency Contacts
+* Live Location Sharing
+* National Helplines
+
+### AI Assistant
+
+* Women's Health Guidance
+* PCOS Awareness
+* Nutrition Support
+* Mental Wellness Guidance
+
+---
+
+## Tech Stack
+
+* React.js
+* Vite
+* JavaScript
+* LocalStorage
+* Geolocation API
+
+---
+
+## Future Roadmap
+
+* Node.js Backend
+* Gemini AI Integration
+* RAG Knowledge Base
+* Safe Route Analysis
+* Safety Check-In System
+* Trusted Circle
+* Wellness Dashboard
+* PostgreSQL / Supabase
+
+---
+
+## Architecture
+
+Frontend (React)
+↓
+Backend (Node.js)
+↓
+AI Service
+↓
+Knowledge Base
+↓
+Database
+
+---
+
+## Developed By
+
+Ronika S
+
+Aspiring Software Engineer | AI Enthusiast | Full Stack Developer
+
+---
+
+## Status
+
+🚧 Active Development
