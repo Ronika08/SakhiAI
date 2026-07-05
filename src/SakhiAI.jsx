@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import useLocation from "./hooks/useLocation";
 import Header from "./components/Header";
+import BottomNav from "./components/BottomNav";
+import StatsCards from "./components/StatsCards";
+import AboutCard from "./components/AboutCard";
+import HealthTips from "./components/HealthTips";
 
 // ─────────────────────────────────────────────
 // CONFIG
@@ -153,6 +158,12 @@ export default function App() {
   const [lastSosLoc,      setLastSosLoc]      = useState(() => lsGet(LS.lastSosLoc, null));
   const [currentLoc,      setCurrentLoc]      = useState(null);
   const sosTimerRef = useRef(null);
+  const {
+  location,
+  loading: locationLoading,
+  error: locationError,
+  refreshLocation,
+} = useLocation();
 
   // ── Check-In ──
   const [checkInMins,    setCheckInMins]    = useState(30);
@@ -225,7 +236,11 @@ export default function App() {
     const t = setTimeout(() => setSosCountdown(c => c - 1), 1000);
     return () => clearTimeout(t);
   }, [sosCountdown]);
-
+useEffect(() => {
+  if (location) {
+    setCurrentLoc(location);
+  }
+}, [location]);
   // ─────────────────────────────────────────────
   // DERIVED
   // ─────────────────────────────────────────────
