@@ -5,6 +5,8 @@ import BottomNav from "./components/BottomNav";
 import StatsCards from "./components/StatsCards";
 import AboutCard from "./components/AboutCard";
 import HealthTips from "./components/HealthTips";
+import LiveMap from "./components/LiveMap";
+import { getAddressFromCoordinates } from "./services/locationService";
 
 // ─────────────────────────────────────────────
 // CONFIG
@@ -160,8 +162,9 @@ export default function App() {
   const sosTimerRef = useRef(null);
   const {
   location,
-  loading: locationLoading,
-  error: locationError,
+  address,
+  loading,
+  error,
   refreshLocation,
 } = useLocation();
 
@@ -331,15 +334,45 @@ useEffect(() => {
   // ─────────────────────────────────────────────
   // GEOLOCATION
   // ─────────────────────────────────────────────
-  function fetchLoc() {
-    return new Promise(resolve => {
-      if (!navigator.geolocation) return resolve(null);
-      navigator.geolocation.getCurrentPosition(
-        pos => { const l = { lat: pos.coords.latitude, lng: pos.coords.longitude }; setCurrentLoc(l); resolve(l); },
-        () => resolve(null)
-      );
-    });
-  }
+  async function fetchLoc() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const location = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        };
+
+        setCurrentLoc(location);
+
+        try {
+          const address = await getAddressFromCoordinates(
+            location.lat,
+            location.lng
+          );
+
+          setCurrentAddress(address);
+        } catch (err) {
+          console.error(err);
+        }
+
+        resolve(location);
+      },
+      () => resolve(null),
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  });
+}
 
   // ─────────────────────────────────────────────
   // SOS — countdown then execute
@@ -1096,12 +1129,75 @@ useEffect(() => {
               </div>
             )}
 
-            {/* Location display */}
-            {currentLoc && (
-              <div style={{ marginTop: 10, color: "#c62828", fontSize: 12 }}>
-                📍 {currentLoc.lat.toFixed(4)}, {currentLoc.lng.toFixed(4)} · <a href={`https://maps.google.com/?q=${currentLoc.lat},${currentLoc.lng}`} target="_blank" rel="noreferrer" style={{ color: "#b71c1c", fontWeight: "bold" }}>Open Maps</a>
-              </div>
-            )}
+            {/* Live Google Map */}
+{currentLoc && (
+  <>
+    <LiveMap location={currentLoc} />
+
+    <div
+      style={{
+        marginTop: 12,
+        background: "#fff8f8",
+        borderRadius: 12,
+        padding: "12px 14px",
+        border: "1px solid #ffcdd2",
+      }}
+    >
+      <div
+        style={{
+          color: "#b71c1c",
+          fontWeight: "bold",
+          marginBottom: 8,
+        }}
+      >
+        📍 Current Location
+      </div>
+
+      <div
+  style={{
+    background: "#fff",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+    lineHeight: 1.6,
+    color: "#444",
+    fontSize: 13,
+  }}
+>
+  <strong>📍 Address</strong>
+
+  <div style={{ marginTop: 6 }}>
+    {address || "Fetching address..."}
+  </div>
+
+  <div style={{ marginTop: 10 }}>
+    <strong>Accuracy:</strong>{" "}
+    {currentLoc.accuracy
+      ? `${Math.round(currentLoc.accuracy)} meters`
+      : "Unknown"}
+  </div>
+</div>
+
+      <a
+        href={`https://maps.google.com/?q=${currentLoc.lat},${currentLoc.lng}`}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: "inline-block",
+          marginTop: 10,
+          background: "#c2185b",
+          color: "#fff",
+          padding: "8px 14px",
+          borderRadius: 8,
+          textDecoration: "none",
+          fontWeight: "bold",
+        }}
+      >
+        🗺 Open in Google Maps
+      </a>
+    </div>
+  </>
+)}
 
             {/* Last SOS info */}
             {(lastSosTs || lastSosLoc) && (
@@ -1126,7 +1222,7 @@ useEffect(() => {
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <a href={`sms:${c.phone}?body=${encodeURIComponent(contactAlertMsg())}`} style={{ flex:1, background:"linear-gradient(135deg,#1565c0,#1976d2)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>📱 SMS</a>
-                  <a href={`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${encodeURIComponent(contactAlertMsg())}`} target="_blank" rel="noreferrer" style={{ flex:1, background:"linear-gradient(135deg,#1b5e20,#2e7d32)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>💬 WA</a>
+                  <a href={`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${encodeURIComponent(contactAlertMsg())}`} target="_blank" rel="noreferrer" style={{ flex:1, background:"linear-gradient(135deg,#1b5e20,#2e7d32)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>🟢 WhatsApp</a>
                   <a href={`tel:${c.phone}`} style={{ flex:1, background:"linear-gradient(135deg,#e65100,#f4511e)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>📞 Call</a>
                 </div>
               </div>

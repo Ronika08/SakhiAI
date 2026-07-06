@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { getAddressFromCoordinates } from "../services/locationService";
 
 export default function useLocation() {
   const [location, setLocation] = useState(null);
+  const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -15,13 +17,26 @@ export default function useLocation() {
     setLoading(true);
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({
+      async (position) => {
+        const newLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           accuracy: position.coords.accuracy,
           timestamp: position.timestamp,
-        });
+        };
+
+        setLocation(newLocation);
+
+        try {
+          const result = await getAddressFromCoordinates(
+            newLocation.lat,
+            newLocation.lng
+          );
+
+          setAddress(result);
+        } catch (err) {
+          console.error(err);
+        }
 
         setError("");
         setLoading(false);
@@ -44,6 +59,7 @@ export default function useLocation() {
 
   return {
     location,
+    address,
     loading,
     error,
     refreshLocation: getLocation,
