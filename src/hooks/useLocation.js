@@ -1,48 +1,41 @@
 import { useState, useEffect, useCallback } from "react";
-import { getAddressFromCoordinates } from "../services/locationService";
 
 export default function useLocation() {
   const [location, setLocation] = useState(null);
-  const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const getLocation = useCallback(() => {
+  const [gpsStatus, setGpsStatus] = useState("Searching...");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const refreshLocation = useCallback(() => {
     if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser.");
+      setError("Geolocation is not supported.");
+      setGpsStatus("Unavailable");
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const newLocation = {
+      (position) => {
+        setLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           accuracy: position.coords.accuracy,
+          speed: position.coords.speed,
+          heading: position.coords.heading,
+          altitude: position.coords.altitude,
           timestamp: position.timestamp,
-        };
+        });
 
-        setLocation(newLocation);
-
-        try {
-          const result = await getAddressFromCoordinates(
-            newLocation.lat,
-            newLocation.lng
-          );
-
-          setAddress(result);
-        } catch (err) {
-          console.error(err);
-        }
-
+        setGpsStatus("Connected");
+        setLastUpdated(new Date());
         setError("");
         setLoading(false);
       },
       (err) => {
         setError(err.message);
+        setGpsStatus("Location Error");
         setLoading(false);
       },
       {
@@ -54,14 +47,46 @@ export default function useLocation() {
   }, []);
 
   useEffect(() => {
-    getLocation();
-  }, [getLocation]);
+    if (!navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          speed: position.coords.speed,
+          heading: position.coords.heading,
+          altitude: position.coords.altitude,
+          timestamp: position.timestamp,
+        });
+
+        setGpsStatus("Connected");
+        setLastUpdated(new Date());
+        setError("");
+        setLoading(false);
+      },
+      (err) => {
+        setError(err.message);
+        setGpsStatus("Location Error");
+        setLoading(false);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000,
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   return {
     location,
-    address,
     loading,
     error,
-    refreshLocation: getLocation,
+    gpsStatus,
+    lastUpdated,
+    refreshLocation,
   };
 }

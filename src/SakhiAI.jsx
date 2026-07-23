@@ -162,9 +162,10 @@ export default function App() {
   const sosTimerRef = useRef(null);
   const {
   location,
-  address,
   loading,
   error,
+  gpsStatus,
+  lastUpdated,
   refreshLocation,
 } = useLocation();
 
@@ -1132,7 +1133,12 @@ useEffect(() => {
             {/* Live Google Map */}
 {currentLoc && (
   <>
-    <LiveMap location={currentLoc} />
+    <LiveMap
+  location={currentLoc}
+  gpsStatus={gpsStatus}
+  lastUpdated={lastUpdated}
+  refreshLocation={refreshLocation}
+/>
 
     <div
       style={{
@@ -1153,30 +1159,7 @@ useEffect(() => {
         📍 Current Location
       </div>
 
-      <div
-  style={{
-    background: "#fff",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-    lineHeight: 1.6,
-    color: "#444",
-    fontSize: 13,
-  }}
->
-  <strong>📍 Address</strong>
-
-  <div style={{ marginTop: 6 }}>
-    {address || "Fetching address..."}
-  </div>
-
-  <div style={{ marginTop: 10 }}>
-    <strong>Accuracy:</strong>{" "}
-    {currentLoc.accuracy
-      ? `${Math.round(currentLoc.accuracy)} meters`
-      : "Unknown"}
-  </div>
-</div>
+      
 
       <a
         href={`https://maps.google.com/?q=${currentLoc.lat},${currentLoc.lng}`}
