@@ -1,32 +1,45 @@
 import { useState, useEffect, useRef } from "react";
+import useLocation from "./hooks/useLocation";
+import Header from "./components/Header";
+import { getAddressFromCoordinates, getPreciseLocation } from "./services/locationService";
+import { useAuth } from "./context/AuthContext";
+import { useToast } from "./components/Toast";
+import ConfirmDialog from "./components/ConfirmDialog";
+import AuthPage from "./pages/AuthPage";
+import { contactsApi, cycleApi, moodApi, wellnessApi, sosApi } from "./services/dataApi";
+import { routeChat } from "./services/chatRouter";
+import { speak, stopSpeaking } from "./services/tts";
+import { useLanguage } from "./i18n/LanguageContext";
+import { useConnectivity, useSyncStatus } from "./hooks/useConnectivity";
+import useVoiceInput from "./hooks/useVoiceInput";
+import ConnectivityPanel from "./components/ConnectivityPanel";
+import LanguageSelector from "./components/LanguageSelector";
+import { startConnectivityMonitor } from "./services/connectivity";
+import {
+  submit as submitChange, flush as flushOutbox, enqueue, removeByKey, startSyncEngine,
+  onOpResult, onOutboxChange, getOutboxSummary,
+} from "./services/syncQueue";
+import { registerSyncHandlers } from "./services/syncHandlers";
+
+import HomePage from "./pages/HomePage";
+import ChatPage from "./pages/ChatPage";
+import TrackerPage from "./pages/TrackerPage";
+import WellnessPage from "./pages/WellnessPage";
+import EmergencyPage from "./pages/EmergencyPage";
+import TrustedCirclePage from "./pages/TrustedCirclePage";
+import SafeRoutePage from "./pages/SafeRoutePage";
+import CheckInPage from "./pages/CheckInPage";
+import TipsPage from "./pages/TipsPage";
 
 // ─────────────────────────────────────────────
 // CONFIG
-// TODO: Move to .env when migrating to Node.js backend
-// TODO: Replace direct Anthropic calls with: fetch(`${API_BASE_URL}/api/chat`, ...)
+// The AI provider, model, API key and system prompt are owned by the BACKEND
+// (backend/.env). Nothing secret or model-related lives in the frontend.
+// API base URL: see services/apiClient.js (VITE_API_BASE_URL).
 // ─────────────────────────────────────────────
-const AI_CONFIG = {
-  model:      "claude-sonnet-4-20250514",
-  maxTokens:  1000,
-  apiUrl:     "https://api.anthropic.com/v1/messages",
-};
-
 const APP_NAME    = "SakhiAI";
 const APP_TAGLINE = "Your Trusted Women's Safety & Health Companion";
 const SOS_SIG     = `Sent via ${APP_NAME}`;
-
-// ─────────────────────────────────────────────
-// SYSTEM PROMPT
-// ─────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are SakhiAI, a compassionate, knowledgeable women's health and safety assistant specializing in menstrual health, PCOS, pregnancy, nutrition, mental wellbeing, women's safety, emergency preparedness, and self-care.
-Guidelines:
-- Be warm, empathetic, and supportive.
-- Provide medically responsible information.
-- Always encourage professional medical consultation when appropriate.
-- For emergencies, immediately recommend emergency services.
-- Mention Indian emergency numbers when relevant (Women Helpline: 1091, Police: 100, Emergency: 112).
-- Never claim to diagnose medical conditions.
-- Keep responses concise and helpful.`;
 
 // ─────────────────────────────────────────────
 // STATIC DATA
@@ -56,10 +69,6 @@ const NATIONAL_HELPLINES = [
   ["🧠 Mental Health (iCall)", "9152987821"],
 ];
 
-const CHAT_SUGGESTIONS = [
-  "Period cramps relief", "PCOS diet tips", "Ovulation signs", "Stress & hormones",
-];
-
 const RELATIONSHIP_OPTIONS = ["Mom", "Dad", "Sister", "Brother", "Friend", "Partner", "Aunt", "Other"];
 
 const INITIAL_MESSAGES = [{
@@ -85,6 +94,11 @@ const LS = {
   wellnessLog:   "sakhi_wellnessLog",
   checkInTime:   "sakhi_checkInTime",
   checkInActive: "sakhi_checkInActive",
+  checkInId:     "sakhi_checkInId",
+  activity:      "sakhi_activity",
+  stress:        "sakhi_stress",
+  migrated:      "sakhi_migrated_",
+  sosLocal:      "sakhi_sosLocal",
 };
 
 function lsGet(key, fallback) {
@@ -92,7 +106,7 @@ function lsGet(key, fallback) {
   catch { return fallback; }
 }
 function lsSet(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ }
 }
 
 // ─────────────────────────────────────────────
@@ -115,6 +129,15 @@ function fmtDate(d) {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Stable random id for this browser; used to build idempotency keys for offline sync. */
+function deviceId() {
+  try {
+    let id = localStorage.getItem("sakhi_device");
+    if (!id) { id = Math.random().toString(36).slice(2, 10); localStorage.setItem("sakhi_device", id); }
+    return id;
+  } catch { return "dev00000"; }
+}
+
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -125,14 +148,25 @@ function todayKey() {
 export default function App() {
 
   // ── Navigation ──
-  const [screen, setScreen] = useState("home");
+  const [screen, setScreen] = useState(() => {
+    try {
+      const s = new URLSearchParams(window.location.search).get("screen");
+      return ["emergency", "chat", "tracker", "wellness", "circle", "checkin", "route", "tips", "account"].includes(s) ? s : "home";
+    } catch { return "home"; }
+  });
 
   // ── Chat ──
   const [messages,  setMessages]  = useState(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [voiceOn,   setVoiceOn]   = useState(false); // placeholder
+  const [voiceOn,   setVoiceOn]   = useState(false); // read replies aloud (device speech synthesis)
   const chatEndRef = useRef(null);
+  const { lang, t } = useLanguage();
+  const connectivity = useConnectivity();
+  const online = connectivity === "online";
+  useSyncStatus();
+  const voice = useVoiceInput({ lang, online, onTranscript: (text) => setInputText(text) });
+  const chatSuggestions = [t("chat.suggest1"), t("chat.suggest2"), t("chat.suggest3"), t("chat.suggest4")];
 
   // ── Cycle tracker ──
   const [lmp,          setLmp]          = useState(() => lsGet(LS.lmp, ""));
@@ -151,7 +185,15 @@ export default function App() {
   const [lastSosTs,       setLastSosTs]       = useState(() => lsGet(LS.lastSosTs,  null));
   const [lastSosLoc,      setLastSosLoc]      = useState(() => lsGet(LS.lastSosLoc, null));
   const [currentLoc,      setCurrentLoc]      = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [currentAddress,  setCurrentAddress]  = useState(null);
   const sosTimerRef = useRef(null);
+  const {
+  location,
+  gpsStatus,
+  lastUpdated,
+  refreshLocation,
+} = useLocation();
 
   // ── Check-In ──
   const [checkInMins,    setCheckInMins]    = useState(30);
@@ -174,6 +216,34 @@ export default function App() {
   const [mood,        setMood]        = useState(() => lsGet(LS.mood, null));
   const [moodHistory, setMoodHistory] = useState(() => lsGet(LS.moodHistory, []));
 
+  // ── Account / sync / SOS report / dialogs ──
+  const { isAuthenticated, user, status: authStatus } = useAuth();
+  const sosPayloadRef = useRef(null);
+  const toast = useToast();
+  const [sync, setSync] = useState({ loading: false, error: null });
+  const [sosReport, setSosReport] = useState(null);
+  const [justReconnected, setJustReconnected] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [locError, setLocError] = useState(null);
+  const [confirmState, setConfirmState] = useState(null);
+  const [resetToken, setResetToken] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("reset"); } catch { return null; }
+  });
+  const sosEventIdRef = useRef(null);
+  const sosLocRef = useRef(null);
+  const checkInIdRef = useRef(lsGet(LS.checkInId, null));
+  const [weeklySummary, setWeeklySummary] = useState(null);
+  const [cyclePrediction, setCyclePrediction] = useState(null);
+
+  // ── Extra wellness fields (activity / stress) ──
+  const [activity, setActivity] = useState(() => lsGet(LS.activity + todayKey(), ""));
+  const [stress,   setStress]   = useState(() => lsGet(LS.stress + todayKey(), ""));
+
+  // ── Cycle entry details ──
+  const [cycleFlow,     setCycleFlow]     = useState("");
+  const [cycleSymptoms, setCycleSymptoms] = useState([]);
+  const [cycleNotes,    setCycleNotes]    = useState("");
+
   // ── UI ──
   const [tipIdx, setTipIdx] = useState(0);
 
@@ -189,6 +259,148 @@ export default function App() {
   useEffect(() => { lsSet(LS.wellnessLog, wellnessLog);  }, [wellnessLog]);
   useEffect(() => { lsSet(LS.water + todayKey(), water); }, [water]);
   useEffect(() => { lsSet(LS.sleep + todayKey(), sleep); }, [sleep]);
+  useEffect(() => { lsSet(LS.activity + todayKey(), activity); }, [activity]);
+  useEffect(() => { lsSet(LS.stress + todayKey(), stress); }, [stress]);
+
+  // ─────────────────────────────────────────────
+  // OFFLINE-FIRST SYNC (signed-in users; anonymous users stay on localStorage)
+  //   local change → outbox → (online + signed in) → API → MongoDB
+  // ─────────────────────────────────────────────
+  const isAuthedRef = useRef(false);
+  useEffect(() => { isAuthedRef.current = isAuthenticated; }, [isAuthenticated]);
+  const needsPullRef = useRef(false);
+
+  useEffect(() => { registerSyncHandlers(); }, []);
+  useEffect(() => startConnectivityMonitor(), []);
+  useEffect(() => startSyncEngine({ isAuthed: () => isAuthedRef.current }), []);
+
+  // Results of queued operations (immediate or after reconnecting).
+  useEffect(() => onOpResult((evt) => {
+    const { op } = evt;
+    if (evt.ok) {
+      if (op.type === "sos.create") {
+        const { sosEvent, delivery } = evt.result;
+        setSosReport({
+          phase: "done", event: sosEvent, delivery,
+          locationNote: sosLocRef.current ? null : "GPS was unavailable, so no location was included.",
+          late: Boolean(sosEvent?.syncedLate),
+        });
+        updateLocalSOS(op.payload.clientEventId, delivery.notificationStatus);
+      } else if (op.type === "cycle.save" && evt.result?.log?._id) {
+        setCycleHistory(h => h.map(e => (e.date === op.payload.date ? { ...e, id: evt.result.log._id } : e)));
+      } else if (op.type === "contacts.sync" && evt.result?.slots) {
+        setContacts(evt.result.slots);
+      } else if (op.type === "checkin.start" && evt.result?.checkIn?._id) {
+        checkInIdRef.current = evt.result.checkIn._id; lsSet(LS.checkInId, evt.result.checkIn._id);
+      }
+      return;
+    }
+    if (op.type === "sos.create") {
+      updateLocalSOS(op.payload.clientEventId, evt.permanent ? "FAILED" : "RETRYING");
+      setSosReport(prev => (prev && prev.phase === "done") ? prev : { phase: evt.permanent ? "error" : "queued", retrying: !evt.permanent, message: evt.error?.userMessage });
+    } else if (evt.permanent) {
+      toast.error(evt.error?.userMessage || "A change could not be synced.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  // Pull server data (server wins) only when nothing local is waiting to be pushed.
+  async function pullFromServer() {
+    const [c, cy, m, w] = await Promise.allSettled([contactsApi.list(), cycleApi.list(), moodApi.list(), wellnessApi.list()]);
+    const failed = [c, cy, m, w].filter((r) => r.status === "rejected");
+
+    if (c.status === "fulfilled" && c.value.length > 0) {
+      const mapped = c.value.map(contactsApi.toFrontend);
+      while (mapped.length < 3) mapped.push({ name: "", phone: "", email: "", relationship: "Other" });
+      setContacts(mapped);
+    }
+    if (cy.status === "fulfilled" && cy.value.length > 0) {
+      setCycleHistory(cy.value.map(cycleApi.toFrontend).map((e) => ({ ...e, phase: e.phase || "—" })).slice(0, 24));
+      const latest = cy.value[0];
+      if (latest?.startDate) { setLmp(new Date(latest.startDate).toISOString().slice(0, 10)); if (latest.cycleLengthDays) setCycleLength(latest.cycleLengthDays); }
+    }
+    if (m.status === "fulfilled" && m.value.length > 0) {
+      const seen = new Set();
+      const mapped = m.value.map(moodApi.toFrontend).filter((e) => (seen.has(e.dayKey) ? false : seen.add(e.dayKey)));
+      setMoodHistory(mapped.slice(0, 30));
+      if (mapped[0]?.dayKey === todayKey()) setMood(mapped[0].emoji);
+    }
+    if (w.status === "fulfilled" && w.value.length > 0) {
+      const mapped = w.value.map(wellnessApi.toFrontend);
+      setWellnessLog(mapped.slice(0, 60));
+      const today = mapped.find((e) => e.date === todayKey());
+      if (today) { setWater(today.water); if (today.sleep) setSleep(today.sleep); setActivity(today.activity); setStress(today.stress); }
+    }
+    wellnessApi.summary(7).then(setWeeklySummary).catch(() => {});
+    cycleApi.predict().then(setCyclePrediction).catch(() => {});
+    setSync({ loading: false, error: failed.length ? (failed[0].reason?.userMessage || "Some data could not be synced.") : null });
+    return failed.length === 0;
+  }
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return undefined;
+    let cancelled = false;
+    (async () => {
+      setSync({ loading: true, error: null });
+      // One-time upload of data created before sign-in. Stable client ids make this idempotent.
+      if (!lsGet(LS.migrated + user.id, false)) {
+        const dev = deviceId();
+        if (contacts.some((x) => x.name?.trim() && x.phone?.trim())) enqueue("contacts.sync", {}, { key: "contacts" });
+        cycleHistory.forEach((e) => enqueue("cycle.save", { date: e.date, cycleLength: e.cycleLength, clientId: `mig-${dev}-${e.date}` }, { key: `cycle:${e.date}` }));
+        wellnessLog.forEach((e) => enqueue("wellness.save", { date: e.date, water: e.water, sleep: e.sleep, mood: e.mood }, { key: `wellness:${e.date}` }));
+        if (mood) enqueue("mood.save", { emoji: mood, clientId: `mig-${dev}-${todayKey()}`, loggedDate: new Date().toISOString() }, { key: `mood:${todayKey()}` });
+        lsSet(LS.migrated + user.id, true);
+      }
+      await flushOutbox({ isAuthed: () => isAuthedRef.current });
+      if (cancelled) return;
+      if (getOutboxSummary().pending === 0) { needsPullRef.current = false; await pullFromServer(); }
+      else { needsPullRef.current = true; setSync({ loading: false, error: null }); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user?.id]);
+
+  // When the queue drains after being blocked (e.g. connectivity returned), pull fresh server data.
+  useEffect(() => onOutboxChange((s) => {
+    if (s.pending === 0 && needsPullRef.current && isAuthedRef.current) { needsPullRef.current = false; pullFromServer(); }
+  }), []);
+
+  /** Queue a change for the account. Anonymous users: localStorage only (nothing queued). */
+  async function queueSync(type, payload, opts = {}) {
+    if (!isAuthenticated) return { status: "local" };
+    return submitChange(type, payload, { ...opts, isAuthed: () => isAuthedRef.current });
+  }
+  function syncStatusText() {
+    const p = getOutboxSummary().pending;
+    return p > 0 ? ` · ${t("sync.syncing")}` : "";
+  }
+  function reportSaved(result, okText) {
+    if (result.status === "done") toast.success(okText);
+    else if (result.status === "queued") toast.info(t("sync.offline.saved"));
+    else if (result.status === "failed") toast.error(`${result.error?.userMessage || "Could not sync."}`);
+    else toast.success(okText);
+  }
+
+  // Keep a small local record of SOS events (visible even with no network / no account).
+  function updateLocalSOS(clientEventId, status) {
+    const list = lsGet(LS.sosLocal, []);
+    lsSet(LS.sosLocal, list.map((e) => (e.clientEventId === clientEventId ? { ...e, status } : e)));
+  }
+
+  // Greeting follows the selected language until the conversation starts.
+  useEffect(() => {
+    setMessages(prev => (prev.length === 1 && prev[0].role === "assistant" ? [{ role: "assistant", content: t("chat.initial", { app: APP_NAME }) }] : prev));
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stop reading aloud when leaving the chat or turning it off.
+  useEffect(() => { if (!voiceOn || screen !== "chat") stopSpeaking(); }, [voiceOn, screen]);
+
+  // Announce reconnection briefly.
+  const prevOnline = useRef(online);
+  useEffect(() => {
+    if (online && !prevOnline.current) { setJustReconnected(true); setTimeout(() => setJustReconnected(false), 5000); }
+    prevOnline.current = online;
+  }, [online]);
 
   // Chat scroll
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -223,8 +435,13 @@ export default function App() {
     if (sosCountdown === 0) { executeSOS(); return; }
     const t = setTimeout(() => setSosCountdown(c => c - 1), 1000);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sosCountdown]);
-
+useEffect(() => {
+  if (location) {
+    setCurrentLoc(location);
+  }
+}, [location]);
   // ─────────────────────────────────────────────
   // DERIVED
   // ─────────────────────────────────────────────
@@ -261,68 +478,144 @@ export default function App() {
     // Only log once per day
     const updated = [entry, ...moodHistory.filter(m => m.dayKey !== todayKey())].slice(0, 30);
     setMoodHistory(updated);
+    queueSync("mood.save", { emoji, clientId: `mood-${deviceId()}-${Date.now().toString(36)}`, loggedDate: new Date().toISOString() }, { key: `mood:${todayKey()}` })
+      .then((r) => { if (r.status === "queued") toast.info(t("sync.offline.saved")); else if (r.status === "failed") toast.error(r.error?.userMessage || "Could not sync mood."); });
   }
 
   // ─────────────────────────────────────────────
   // WELLNESS
   // ─────────────────────────────────────────────
-  function logWellness() {
-    if (!sleep && water === 0) return;
-    const entry = { date: todayKey(), water, sleep, mood };
+  async function logWellness() {
+    if (!sleep && water === 0 && activity === "" && stress === "") {
+      toast.info("Add water, sleep, activity or stress first.");
+      return;
+    }
+    const entry = { date: todayKey(), water, sleep, mood, activity, stress };
     const updated = [entry, ...wellnessLog.filter(e => e.date !== todayKey())].slice(0, 60);
     setWellnessLog(updated);
-    alert("✅ Wellness data saved for today!");
+    const r = await queueSync("wellness.save", { date: todayKey(), water, sleep, mood, activity, stress }, { key: `wellness:${todayKey()}` });
+    if (r.status === "local") { toast.success("Saved on this device. Sign in to sync across devices."); return; }
+    reportSaved(r, "Wellness data saved to your account.");
+    if (r.status === "done") wellnessApi.summary(7).then(setWeeklySummary).catch(() => {});
   }
 
   // ─────────────────────────────────────────────
-  // CYCLE HISTORY
+  // CYCLE
   // ─────────────────────────────────────────────
-  function saveCycleEntry() {
+  async function saveCycleEntry() {
     if (!lmp) return;
-    const entry = { date: lmp, cycleLength, phase: phaseLabel, logged: new Date().toLocaleDateString("en-IN") };
+    const existing = cycleHistory.find(e => e.date === lmp);
+    const entry = {
+      id: existing?.id, date: lmp, cycleLength, phase: phaseLabel,
+      flow: cycleFlow || null, symptoms: cycleSymptoms, notes: cycleNotes,
+      logged: new Date().toLocaleDateString("en-IN"),
+    };
     const updated = [entry, ...cycleHistory.filter(e => e.date !== lmp)].slice(0, 24);
     setCycleHistory(updated);
-    alert("✅ Cycle entry saved!");
+    const r = await queueSync(
+      "cycle.save",
+      { id: existing?.id, clientId: `cyc-${deviceId()}-${lmp}`, date: lmp, cycleLength, flow: cycleFlow, symptoms: cycleSymptoms, notes: cycleNotes },
+      { key: `cycle:${lmp}` }
+    );
+    if (r.status === "local") { toast.success("Cycle entry saved on this device."); return; }
+    reportSaved(r, "Cycle entry saved to your account.");
+    if (r.status === "done") cycleApi.predict().then(setCyclePrediction).catch(() => {});
+  }
+
+  function deleteCycleEntry(entry) {
+    setConfirmState({
+      title: "Delete this cycle entry?",
+      message: `The entry for ${entry.date} will be removed${isAuthenticated ? " from this device and your account" : " from this device"}.`,
+      confirmLabel: t("common.delete"),
+      danger: true,
+      onConfirm: async () => {
+        setConfirmState(null);
+        setCycleHistory(h => h.filter(e => e.date !== entry.date));
+        if (!isAuthenticated) { toast.success("Entry deleted."); return; }
+        if (entry.id) {
+          const r = await queueSync("cycle.delete", { id: entry.id }, { key: `cycle-del:${entry.id}` });
+          if (r.status === "done") { toast.success("Entry deleted."); cycleApi.predict().then(setCyclePrediction).catch(() => {}); }
+          else if (r.status === "queued") toast.info(t("sync.offline.saved"));
+          else if (r.status === "failed") toast.error(r.error?.userMessage);
+        } else {
+          removeByKey(`cycle:${entry.date}`);   // never reached the server
+          toast.success("Entry deleted.");
+        }
+      },
+    });
   }
 
   // ─────────────────────────────────────────────
-  // CONTACTS
+  // TRUSTED CIRCLE
   // ─────────────────────────────────────────────
   function updateContact(i, field, val) {
-    const updated = [...contacts]; updated[i][field] = val; setContacts(updated);
+    const updated = [...contacts]; updated[i] = { ...updated[i], [field]: val }; setContacts(updated);
+  }
+
+  const PHONE_RE = /^[+]?[\d\s()-]{7,20}$/;
+  async function saveContacts() {
+    const bad = contacts.findIndex(c => (c.name?.trim() || c.phone?.trim()) && !(c.name?.trim() && PHONE_RE.test(c.phone?.trim() || "")));
+    if (bad !== -1) { toast.error(`Contact ${bad + 1}: enter a name and a valid phone number (7–20 digits).`); return false; }
+    const badEmail = contacts.findIndex(c => c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email.trim()));
+    if (badEmail !== -1) { toast.error(`Contact ${badEmail + 1}: the e-mail address looks invalid.`); return false; }
+    lsSet(LS.contacts, contacts);           // contacts.sync reads the saved local copy
+    if (!isAuthenticated) { toast.success("Trusted Circle saved on this device."); return true; }
+    const r = await queueSync("contacts.sync", {}, { key: "contacts" });
+    reportSaved(r, "Trusted Circle saved to your account.");
+    return r.status !== "failed";
   }
 
   // ─────────────────────────────────────────────
-  // CHECK-IN
+  // CHECK-IN (the timer always runs on the device; server alerts need internet)
   // ─────────────────────────────────────────────
-  function startCheckIn() {
+  async function startCheckIn() {
     const end = new Date(Date.now() + checkInMins * 60000).toISOString();
     setCheckInEndTime(end);
     setCheckInActive(true);
     setCheckInAlert(false);
     lsSet(LS.checkInTime,   end);
     lsSet(LS.checkInActive, true);
+    checkInIdRef.current = null; lsSet(LS.checkInId, null);
+    if (!isAuthenticated) {
+      toast.info("Timer started. Without an account only a banner appears here — no one is alerted automatically.");
+      return;
+    }
+    const r = await queueSync("checkin.start", { deadline: end, label: "Safety Check-In", location: currentLoc, localId: end }, { key: "checkin:start" });
+    if (r.status === "done") toast.info("Timer started. If you don't confirm in time, your Trusted Circle is alerted through the channels configured for this app.");
+    else if (r.status === "queued") toast.info("Timer is running on this device. The server will only know about it once you're online — until then contacts will NOT be alerted automatically.");
+    else if (r.status === "failed") toast.error(`${r.error?.userMessage} Contacts will NOT be alerted automatically.`);
   }
 
-  function confirmSafe() {
+  function finishCheckIn(kind) {
     clearInterval(checkInTimerRef.current);
     setCheckInActive(false);
     setCheckInAlert(false);
     setCheckInRemain(null);
     lsSet(LS.checkInActive, false);
+    const id = checkInIdRef.current;
+    if (isAuthenticated) {
+      if (id) queueSync(kind === "cancel" ? "checkin.cancel" : "checkin.confirm", { id }, { key: `checkin-end:${id}` });
+      else removeByKey("checkin:start");          // the server never heard of it
+    }
+    checkInIdRef.current = null; lsSet(LS.checkInId, null);
   }
+  const confirmSafe  = () => finishCheckIn("confirm");
+  const cancelCheckIn = () => finishCheckIn("cancel");
 
   // ─────────────────────────────────────────────
   // GEOLOCATION
   // ─────────────────────────────────────────────
-  function fetchLoc() {
-    return new Promise(resolve => {
-      if (!navigator.geolocation) return resolve(null);
-      navigator.geolocation.getCurrentPosition(
-        pos => { const l = { lat: pos.coords.latitude, lng: pos.coords.longitude }; setCurrentLoc(l); resolve(l); },
-        () => resolve(null)
-      );
-    });
+  async function fetchLoc() {
+    const result = await getPreciseLocation({ timeoutMs: 10000 });
+    if (!result.ok) {
+      setLocError(result.code);
+      return null;
+    }
+    setLocError(null);
+    if (result.warning) toast.info(result.warning);
+    setCurrentLoc(result.location);
+    getAddressFromCoordinates(result.location.lat, result.location.lng).then(setCurrentAddress).catch(() => {});
+    return result.location;
   }
 
   // ─────────────────────────────────────────────
@@ -342,17 +635,69 @@ export default function App() {
   async function executeSOS() {
     setSosCountdown(null);
     setSosSent(true);
-    const loc      = await fetchLoc();
+    setSosReport(null);
+    const triggeredAt = Date.now();
+
+    const loc = await fetchLoc();            // GPS works offline; null when unavailable — SOS still proceeds
+    sosLocRef.current = loc;
     const mapsLink = loc ? `https://maps.google.com/?q=${loc.lat},${loc.lng}` : "Location unavailable";
-    const msg      = `🚨 EMERGENCY ALERT!\n\nI may be in danger. Please help me immediately!\n\n📍 My live location:\n${mapsLink}\n\n${SOS_SIG}`;
-    const valid    = contacts.filter(c => c.phone.trim());
-    if (!valid.length) { alert("⚠️ Add at least one emergency contact first!"); setSosSent(false); setEmergencyActive(false); return; }
+    const msg = `🚨 EMERGENCY ALERT!\n\nI may be in danger. Please help me immediately!\n\n📍 My live location:\n${mapsLink}\n\n${SOS_SIG}`;
+    const valid = contacts.filter(c => c.phone.trim());
+    if (!valid.length) {
+      toast.error("Add at least one emergency contact in Trusted Circle first. If you're in danger, call 112 now.");
+      setSosSent(false); setEmergencyActive(false);
+      return;
+    }
+
     const ts = new Date().toLocaleString("en-IN");
     setLastSosTs(ts);   lsSet(LS.lastSosTs,  ts);
     if (loc) { setLastSosLoc(loc); lsSet(LS.lastSosLoc, loc); }
+
+    // Device-based flow (works offline, no account needed): opens the SMS and
+    // WhatsApp apps. The user must still press Send — we never claim otherwise.
     window.open(`sms:${valid.map(c => c.phone).join(",")}?body=${encodeURIComponent(msg)}`, "_self");
     setTimeout(() => window.open(`https://wa.me/${valid[0].phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`, "_blank"), 1000);
-    setTimeout(() => setSosSent(false), 6000);
+    setTimeout(() => setSosSent(false), 15000);
+
+    // Local SOS record (survives reloads and offline periods).
+    const clientEventId = sosApi.newEventId();
+    sosEventIdRef.current = clientEventId;
+    sosPayloadRef.current = { location: loc, clientEventId, clientTriggeredAt: triggeredAt };
+    lsSet(LS.sosLocal, [{ clientEventId, at: triggeredAt, hasLocation: Boolean(loc), status: isAuthenticated ? "PENDING" : "LOCAL_ONLY" }, ...lsGet(LS.sosLocal, [])].slice(0, 20));
+
+    if (!isAuthenticated) { setSosReport({ phase: "local" }); return; }
+    await sendServerSOS();
+  }
+
+  /** Server-side SOS (signed-in users): sent now when online, otherwise queued and retried. */
+  async function sendServerSOS() {
+    const payload = sosPayloadRef.current;
+    if (!payload) return;
+    setSosReport({ phase: online ? "sending" : "queued", retrying: false });
+    const r = await submitChange("sos.create", payload, { key: `sos:${payload.clientEventId}`, critical: true, isAuthed: () => isAuthedRef.current });
+    if (r.status === "queued") setSosReport((prev) => (prev && prev.phase === "done" ? prev : { phase: "queued", retrying: online }));
+    else if (r.status === "failed") setSosReport({ phase: "error", message: r.error?.userMessage });
+  }
+
+  /** "I'm safe": cancels a still-queued SOS locally, or marks the server event resolved. */
+  async function resolveSOS(notifySafe) {
+    const id = sosReport?.event?._id;
+    if (!id) {
+      const cid = sosEventIdRef.current;
+      if (cid) { removeByKey(`sos:${cid}`); updateLocalSOS(cid, "CANCELLED_BEFORE_SENT"); }
+      setSosReport(null); setEmergencyActive(false);
+      toast.success("Cancelled. The queued SOS will not be sent.");
+      return;
+    }
+    setResolving(true);
+    try {
+      const { safeNotice } = await sosApi.resolve(id, notifySafe);
+      const told = safeNotice?.overall === "SENT";
+      setSosReport({ phase: "resolved", message: notifySafe ? (told ? "Your contacts were sent an “I'm safe” message (delivery can't be guaranteed)." : "Marked safe. We couldn't send an “I'm safe” message to your contacts — please tell them directly.") : "Marked safe." });
+      setEmergencyActive(false);
+    } catch (err) {
+      toast.error(`Couldn't update the SOS: ${err.userMessage}`);
+    } finally { setResolving(false); }
   }
 
   function contactAlertMsg() {
@@ -362,33 +707,31 @@ export default function App() {
 
   // ─────────────────────────────────────────────
   // CHAT
-  // TODO: Replace fetch target with backend: POST /api/chat
+  // Hybrid flow: Rule Engine → Intent Engine → backend /api/chat → AI provider
   // ─────────────────────────────────────────────
   async function sendMessage() {
     if (!inputText.trim() || isLoading) return;
+
     const userMsg = inputText.trim();
     setInputText("");
+    voice.reset();
+    const history = messages;
     setMessages(prev => [...prev, { role: "user", content: userMsg }]);
     setIsLoading(true);
-    try {
-      const history = [...messages, { role: "user", content: userMsg }];
-      const res  = await fetch(AI_CONFIG.apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: AI_CONFIG.model, max_tokens: AI_CONFIG.maxTokens, system: SYSTEM_PROMPT,
-          messages: history.map(m => ({ role: m.role, content: m.content })) }),
-      });
-      if (!res.ok) throw new Error(res.status);
-      const data  = await res.json();
-      const reply = data.content?.[0]?.text;
-      if (!reply) throw new Error("empty");
-      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
-    } catch (err) {
-      console.error("[SakhiAI] Chat error:", err);
-      setMessages(prev => [...prev, { role: "assistant", content: `${APP_NAME} is currently unavailable. Please check your connection and try again. 💕` }]);
-    } finally { setIsLoading(false); }
-  }
 
+    try {
+      // Rule Engine → Intent Engine → Local Knowledge Base (all offline) →
+      // connectivity check → backend → Gemini. See services/chatRouter.js.
+      const result = await routeChat({ text: userMsg, history, lang });
+      const delay = result.source === "rule" || result.source === "kb" ? 450 : 0;
+      await new Promise((r) => setTimeout(r, delay));
+      setMessages(prev => [...prev, { role: "assistant", content: result.reply, source: result.source, translated: result.translated }]);
+      if (result.action === "OPEN_EMERGENCY") setScreen("emergency");
+      if (voiceOn) speak(result.reply, result.lang);
+    } finally {
+      setIsLoading(false);
+    }
+  }
   // ─────────────────────────────────────────────
   // STYLES (shared)
   // ─────────────────────────────────────────────
@@ -426,32 +769,29 @@ export default function App() {
         .card:hover{transform:translateY(-3px);box-shadow:0 8px 30px rgba(194,24,91,0.2)!important;transition:all 0.2s}
       `}</style>
 
-      {/* ── HEADER ── */}
-      <div style={{
-        background: "linear-gradient(135deg,#c2185b,#880e4f)",
-        padding: "16px 20px", display: "flex", alignItems: "center", gap: 12,
-        boxShadow: "0 4px 20px rgba(194,24,91,0.3)",
-      }}>
-        {screen !== "home" && (
-          <button onClick={() => setScreen("home")} style={{
-            background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 8,
-            color: "#fff", padding: "4px 10px", cursor: "pointer", fontSize: 18,
-          }}>←</button>
-        )}
-        <div style={{ flex: 1 }}>
-          <div style={{ color: "#fff", fontWeight: "bold", fontSize: 20, letterSpacing: 1 }}>🌸 {APP_NAME}</div>
-          <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 11 }}>{APP_TAGLINE}</div>
+      <a href="#main-content" className="skip-link">{t("app.skip")}</a>
+      {!online && (
+        <div className="offline-banner" role="status">
+          {connectivity === "offline" ? t("conn.offline.banner") : t("conn.server")}
         </div>
-        <button onClick={() => setScreen("emergency")} style={{
-          background: "#ff1744", border: "none", borderRadius: 20, color: "#fff",
-          padding: "6px 14px", cursor: "pointer", fontWeight: "bold", fontSize: 13,
-          boxShadow: "0 2px 10px rgba(255,23,68,0.5)", animation: "pulse 2s infinite",
-        }}>🚨 SOS</button>
-      </div>
+      )}
+      {justReconnected && <div className="online-banner" role="status">✅ {t("conn.back")}{syncStatusText()}</div>}
+      {authStatus === "loading" && <div role="status" className="sr-only">Restoring your session…</div>}
+
+      {/* ── HEADER ── */}
+      <Header
+  screen={screen}
+  setScreen={setScreen}
+  APP_NAME={APP_NAME}
+  APP_TAGLINE={APP_TAGLINE}
+  isSignedIn={isAuthenticated}
+  accountLabel={isAuthenticated ? "Account" : "Sign in"}
+/>
+        
 
       {/* ── CHECK-IN ALERT BANNER ── */}
       {checkInAlert && (
-        <div style={{
+        <div role="alert" style={{
           background: "#b71c1c", color: "#fff", padding: "12px 20px",
           display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
@@ -469,699 +809,245 @@ export default function App() {
         </div>
       )}
 
+      <main id="main-content" tabIndex={-1} style={{ outline: "none" }}>
+      {/* ════════════════════════════════════════
+          SCREEN: ACCOUNT (optional sign-in)
+      ════════════════════════════════════════ */}
+      {screen === "account" && (
+        <AuthPage
+          cardStyle={cardStyle}
+          inputStyle={inputStyle}
+          btnPrimary={btnPrimary}
+          setScreen={setScreen}
+          resetToken={resetToken}
+          onResetDone={() => {
+            setResetToken(null);
+            try { window.history.replaceState({}, "", window.location.pathname); } catch { /* ignore */ }
+          }}
+        />
+      )}
+
       {/* ════════════════════════════════════════
           SCREEN: HOME
       ════════════════════════════════════════ */}
       {screen === "home" && (
-        <div style={{ padding: "20px 16px", paddingBottom: 80 }}>
-
-          {/* Greeting + Mood */}
-          <div style={{ ...cardStyle, background: "linear-gradient(135deg,#fff0f7,#f8f0ff)", border: "1px solid rgba(194,24,91,0.15)" }}>
-            <div style={{ fontSize: 24, fontWeight: "bold", color: "#880e4f" }}>Welcome to {APP_NAME} 🌸</div>
-            <div style={{ color: "#ad1457", fontSize: 13, marginTop: 4 }}>Your trusted companion for women's health, safety and wellbeing.</div>
-            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-              {["😊","😌","😔","😤","😴"].map(e => (
-                <button key={e} onClick={() => handleMood(e)} style={{
-                  fontSize: 24, background: mood === e ? "#fce4ec" : "rgba(255,255,255,0.7)",
-                  border: mood === e ? "2px solid #e91e63" : "2px solid transparent",
-                  borderRadius: 12, padding: "6px 10px", cursor: "pointer", transition: "all 0.2s",
-                }}>{e}</button>
-              ))}
-            </div>
-            {mood && <div style={{ color: "#c2185b", fontSize: 13, marginTop: 8 }}>Mood logged {mood} — taking care of yourself matters 🌸</div>}
-          </div>
-
-          {/* Portfolio Stats */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-            {[
-              { label: "Mood Logs",        value: stats.moodLogs,        icon: "😊", color: "#fce4ec", tc: "#c2185b" },
-              { label: "Wellness Entries", value: stats.wellnessEntries, icon: "💪", color: "#e8f5e9", tc: "#2e7d32" },
-              { label: "Safety Contacts",  value: stats.safetyContacts,  icon: "👥", color: "#fff3e0", tc: "#e65100" },
-              { label: "Cycle Records",    value: stats.cycleRecords,    icon: "📅", color: "#f3e5f5", tc: "#7b1fa2" },
-            ].map(({ label, value, icon, color, tc }) => (
-              <div key={label} style={{ background: color, borderRadius: 14, padding: "14px 16px", border: `1px solid ${tc}22` }}>
-                <div style={{ fontSize: 22 }}>{icon}</div>
-                <div style={{ fontSize: 26, fontWeight: "bold", color: tc, lineHeight: 1.2 }}>{value}</div>
-                <div style={{ fontSize: 11, color: tc, fontWeight: "bold", marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Cycle Phase */}
-          {cycleInfo ? (
-            <div style={{ background: "linear-gradient(135deg,#c2185b,#e91e63)", borderRadius: 20, padding: 18, marginBottom: 16, color: "#fff" }}>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>Current Phase</div>
-              <div style={{ fontSize: 22, fontWeight: "bold" }}>{phaseLabel}</div>
-              <div style={{ fontSize: 13, marginTop: 6, opacity: 0.9 }}>
-                {cycleInfo.daysUntilNext > 0 ? `Next period in ${cycleInfo.daysUntilNext} days · ${fmtDate(cycleInfo.nextPeriod)}` : "Period may have started — stay comfortable 💕"}
-              </div>
-              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.8 }}>
-                Fertile window: {fmtDate(cycleInfo.fertileStart)} – {fmtDate(cycleInfo.fertileEnd)}
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => setScreen("tracker")} style={{
-              width: "100%", background: "linear-gradient(135deg,#fce4ec,#f8bbd0)",
-              border: "2px dashed #e91e63", borderRadius: 16, padding: 16,
-              color: "#c2185b", fontSize: 15, cursor: "pointer", marginBottom: 16, textAlign: "center",
-            }}>📅 Set up your cycle tracker →</button>
-          )}
-
-          {/* Quick Actions */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            {QUICK_ACTIONS.map(a => (
-              <button key={a.screen} className="card" onClick={() => setScreen(a.screen)} style={{
-                background: "#fff", border: "1px solid rgba(194,24,91,0.15)",
-                borderRadius: 16, padding: "18px 12px", cursor: "pointer",
-                textAlign: "center", boxShadow: "0 2px 12px rgba(194,24,91,0.08)",
-              }}>
-                <div style={{ fontSize: 28 }}>{a.icon}</div>
-                <div style={{ color: "#880e4f", fontWeight: "bold", fontSize: 14, marginTop: 6 }}>{a.label}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* More nav buttons */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            {[
-              { label: "Trusted Circle", icon: "👥", s: "circle"   },
-              { label: "Safe Route",     icon: "🗺️", s: "route"    },
-              { label: "Check-In",       icon: "⏱️", s: "checkin"  },
-              { label: "Tips",           icon: "🌿", s: "tips"     },
-            ].map(a => (
-              <button key={a.s} className="card" onClick={() => setScreen(a.s)} style={{
-                background: "#fff", border: "1px solid rgba(194,24,91,0.15)",
-                borderRadius: 16, padding: "14px 12px", cursor: "pointer",
-                textAlign: "center", boxShadow: "0 2px 12px rgba(194,24,91,0.08)",
-              }}>
-                <div style={{ fontSize: 24 }}>{a.icon}</div>
-                <div style={{ color: "#880e4f", fontWeight: "bold", fontSize: 13, marginTop: 4 }}>{a.label}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* Daily Tip */}
-          <div key={tipIdx} className="tip-card" style={{
-            background: "linear-gradient(135deg,#f3e5f5,#e8eaf6)", borderRadius: 16, padding: 16,
-            border: "1px solid rgba(156,39,176,0.2)", marginBottom: 14,
-          }}>
-            <div style={{ fontSize: 11, color: "#7b1fa2", fontWeight: "bold", marginBottom: 6, letterSpacing: 1 }}>💡 DAILY TIP</div>
-            <div style={{ fontSize: 22 }}>{HEALTH_TIPS[tipIdx].icon}</div>
-            <div style={{ color: "#4a148c", fontSize: 14, marginTop: 4, lineHeight: 1.5 }}>{HEALTH_TIPS[tipIdx].tip}</div>
-          </div>
-
-          {/* About */}
-          <div style={{ background: "linear-gradient(135deg,#fff0f7,#f3e5f5)", borderRadius: 16, padding: 16, marginBottom: 14, border: "1px solid rgba(194,24,91,0.15)" }}>
-            <div style={{ fontWeight: "bold", color: "#880e4f", fontSize: 15, marginBottom: 8 }}>🌸 About {APP_NAME}</div>
-            <div style={{ color: "#ad1457", fontSize: 13, lineHeight: 1.6 }}>
-              {APP_NAME} combines women's health guidance, cycle tracking, wellness support, emergency safety tools, and AI-powered assistance in one platform designed to support women in everyday life and emergency situations.
-            </div>
-          </div>
-
-          {/* Helplines */}
-          <div style={{ background: "#fff3e0", borderRadius: 16, padding: 16, border: "1px solid rgba(255,152,0,0.3)" }}>
-            <div style={{ fontWeight: "bold", color: "#e65100", marginBottom: 8 }}>📞 Important Helplines</div>
-            {[["Women Helpline","1091"],["Emergency","112"],["Police","100"],["Ambulance","108"]].map(([n,d]) => (
-              <div key={d} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(255,152,0,0.15)" }}>
-                <span style={{ color: "#bf360c", fontSize: 13 }}>{n}</span>
-                <a href={`tel:${d}`} style={{ color: "#e65100", fontWeight: "bold", fontSize: 14, textDecoration: "none" }}>{d}</a>
-              </div>
-            ))}
-          </div>
+        <div style={{ padding: "12px 16px 0" }}>
+          <LanguageSelector />
+          <div style={{ height: 8 }} />
+          <ConnectivityPanel />
         </div>
+      )}
+      {screen === "home" && (
+        <HomePage
+          APP_NAME={APP_NAME}
+          mood={mood}
+          handleMood={handleMood}
+          stats={stats}
+          cycleInfo={cycleInfo}
+          phaseLabel={phaseLabel}
+          fmtDate={fmtDate}
+          setScreen={setScreen}
+          QUICK_ACTIONS={QUICK_ACTIONS.map((a) => ({ ...a, label: t(`quick.${a.screen}`) }))}
+          tipIdx={tipIdx}
+          HEALTH_TIPS={HEALTH_TIPS}
+          cardStyle={cardStyle}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: CHAT
       ════════════════════════════════════════ */}
       {screen === "chat" && (
-        <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 64px)" }}>
-          <div style={{ flex: 1, overflowY: "auto", padding: "16px", paddingBottom: 0 }}>
-            {messages.map((m, i) => (
-              <div key={i} className="msg-bubble" style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 12 }}>
-                {m.role === "assistant" && (
-                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#c2185b,#e91e63)", display: "flex", alignItems: "center", justifyContent: "center", marginRight: 8, flexShrink: 0, fontSize: 16 }}>🌸</div>
-                )}
-                <div style={{
-                  maxWidth: "75%", whiteSpace: "pre-wrap",
-                  background: m.role === "user" ? "linear-gradient(135deg,#c2185b,#e91e63)" : "#fff",
-                  color: m.role === "user" ? "#fff" : "#333",
-                  borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                  padding: "12px 16px", fontSize: 14, lineHeight: 1.6,
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.1)",
-                }}>{m.content}</div>
-              </div>
-            ))}
-            {isLoading && (
-              <div style={{ display: "flex", gap: 8, padding: "8px 0" }}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#c2185b,#e91e63)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🌸</div>
-                <div style={{ background: "#fff", borderRadius: 18, padding: "12px 18px", boxShadow: "0 2px 12px rgba(0,0,0,0.1)" }}>
-                  <span style={{ color: "#c2185b" }}>●</span><span style={{ color: "#e91e63", marginLeft: 4 }}>●</span><span style={{ color: "#f48fb1", marginLeft: 4 }}>●</span>
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Suggestions */}
-          <div style={{ padding: "8px 16px", overflowX: "auto", display: "flex", gap: 8, flexWrap: "nowrap" }}>
-            {CHAT_SUGGESTIONS.map(s => (
-              <button key={s} onClick={() => setInputText(s)} style={{
-                flexShrink: 0, background: "#fce4ec", border: "1px solid #f48fb1",
-                borderRadius: 20, padding: "6px 14px", fontSize: 12, color: "#c2185b",
-                cursor: "pointer", whiteSpace: "nowrap",
-              }}>{s}</button>
-            ))}
-          </div>
-
-          {/* Input row */}
-          <div style={{ padding: 16, background: "#fff", borderTop: "1px solid rgba(194,24,91,0.1)", display: "flex", gap: 10, alignItems: "center" }}>
-            {/* Voice input placeholder */}
-            <button title="Voice input (coming soon)" onClick={() => alert("🎤 Voice input feature coming soon!")} style={{
-              background: "#fce4ec", border: "1px solid #f48fb1", borderRadius: "50%",
-              width: 40, height: 40, fontSize: 18, cursor: "pointer", flexShrink: 0,
-            }}>🎤</button>
-            <input value={inputText} onChange={e => setInputText(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && sendMessage()}
-              placeholder="Ask me anything about your health..."
-              style={{ flex: 1, border: "2px solid rgba(194,24,91,0.3)", borderRadius: 24, padding: "12px 18px", fontSize: 14, outline: "none", background: "#fff0f7", color: "#333", fontFamily: "Georgia, serif" }}
-            />
-            {/* Voice response toggle placeholder */}
-            <button title="Voice response (coming soon)" onClick={() => setVoiceOn(v => !v)} style={{
-              background: voiceOn ? "#c2185b" : "#fce4ec",
-              border: "1px solid #f48fb1", borderRadius: "50%",
-              width: 40, height: 40, fontSize: 18, cursor: "pointer", flexShrink: 0,
-            }}>🔊</button>
-            <button onClick={sendMessage} disabled={isLoading} style={{
-              background: "linear-gradient(135deg,#c2185b,#e91e63)", border: "none",
-              borderRadius: "50%", width: 48, height: 48, color: "#fff", fontSize: 20,
-              cursor: isLoading ? "not-allowed" : "pointer",
-              boxShadow: "0 4px 15px rgba(194,24,91,0.4)", opacity: isLoading ? 0.7 : 1,
-            }}>➤</button>
-          </div>
-          {voiceOn && (
-            <div style={{ background: "#fce4ec", padding: "6px 16px", textAlign: "center", fontSize: 12, color: "#c2185b" }}>
-              🔊 Voice responses enabled (coming soon — will read AI replies aloud)
-            </div>
-          )}
-          <div style={{ padding: "6px 16px 10px", background: "#fff", textAlign: "center", fontSize: 11, color: "#ad1457", borderTop: "1px solid rgba(194,24,91,0.06)" }}>
-            ⚠️ {APP_NAME} provides educational health information only and is not a substitute for professional medical advice.
-          </div>
-        </div>
+        <ChatPage
+          messages={messages}
+          isLoading={isLoading}
+          chatEndRef={chatEndRef}
+          suggestions={chatSuggestions}
+          inputText={inputText}
+          setInputText={setInputText}
+          sendMessage={sendMessage}
+          voiceOn={voiceOn}
+          setVoiceOn={setVoiceOn}
+          APP_NAME={APP_NAME}
+          t={t}
+          voice={voice}
+          connectivity={connectivity}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: CYCLE TRACKER + HISTORY
       ════════════════════════════════════════ */}
       {screen === "tracker" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#880e4f", marginBottom: 4 }}>📅 Cycle Tracker</div>
-          <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 20 }}>Track your cycle for personalized insights</div>
-
-          <div style={cardStyle}>
-            <label style={{ display: "block", color: "#c2185b", fontWeight: "bold", marginBottom: 6, fontSize: 14 }}>📆 Last Period Start Date</label>
-            <input type="date" value={lmp} onChange={e => setLmp(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
-          </div>
-
-          <div style={cardStyle}>
-            <label style={{ display: "block", color: "#c2185b", fontWeight: "bold", marginBottom: 6, fontSize: 14 }}>
-              🔄 Cycle Length: <span style={{ color: "#e91e63" }}>{cycleLength} days</span>
-            </label>
-            <input type="range" min={21} max={40} value={cycleLength} onChange={e => setCycleLength(+e.target.value)} style={{ width: "100%", accentColor: "#e91e63" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#aaa", fontSize: 12, marginTop: 4 }}>
-              <span>21</span><span>28 (avg)</span><span>40</span>
-            </div>
-          </div>
-
-          {cycleInfo && (
-            <>
-              <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
-                {[
-                  { label: "Next Period",    value: fmtDate(cycleInfo.nextPeriod),  icon: "🩸", color: "#fce4ec", tc: "#c2185b" },
-                  { label: "Ovulation Day",  value: fmtDate(cycleInfo.ovulation),   icon: "🥚", color: "#e8f5e9", tc: "#2e7d32" },
-                  { label: "Fertile Window", value: `${fmtDate(cycleInfo.fertileStart)} – ${fmtDate(cycleInfo.fertileEnd)}`, icon: "🌸", color: "#fff3e0", tc: "#e65100" },
-                  { label: "Current Phase",  value: phaseLabel,                      icon: "📊", color: "#f3e5f5", tc: "#7b1fa2" },
-                ].map(({ label, value, icon, color, tc }) => (
-                  <div key={label} style={{ background: color, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
-                    <span style={{ fontSize: 28 }}>{icon}</span>
-                    <div>
-                      <div style={{ fontSize: 11, color: tc, fontWeight: "bold", letterSpacing: 0.5 }}>{label.toUpperCase()}</div>
-                      <div style={{ fontSize: 15, color: tc, fontWeight: "bold", marginTop: 2 }}>{value}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button onClick={saveCycleEntry} style={btnPrimary}>💾 Save Cycle Entry</button>
-            </>
-          )}
-
-          {!lmp && <div style={{ textAlign: "center", color: "#bbb", marginTop: 40, fontSize: 14 }}>🌸 Enter your last period date to see predictions</div>}
-
-          {/* Cycle History */}
-          {cycleHistory.length > 0 && (
-            <div style={{ ...cardStyle, marginTop: 20 }}>
-              <div style={sectionTitle}>📋 Cycle History</div>
-              {cycleHistory.map((entry, i) => (
-                <div key={i} style={{ background: "#fff0f7", borderRadius: 10, padding: "10px 14px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ color: "#880e4f", fontWeight: "bold", fontSize: 13 }}>{entry.date}</div>
-                    <div style={{ color: "#ad1457", fontSize: 12 }}>{entry.cycleLength}-day cycle · {entry.phase}</div>
-                  </div>
-                  <div style={{ color: "#bbb", fontSize: 11 }}>{entry.logged}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <TrackerPage
+          cardStyle={cardStyle}
+          inputStyle={inputStyle}
+          sectionTitle={sectionTitle}
+          btnPrimary={btnPrimary}
+          lmp={lmp}
+          setLmp={setLmp}
+          cycleLength={cycleLength}
+          setCycleLength={setCycleLength}
+          cycleInfo={cycleInfo}
+          phaseLabel={phaseLabel}
+          fmtDate={fmtDate}
+          saveCycleEntry={saveCycleEntry}
+          cycleHistory={cycleHistory}
+          cycleFlow={cycleFlow}
+          setCycleFlow={setCycleFlow}
+          cycleSymptoms={cycleSymptoms}
+          setCycleSymptoms={setCycleSymptoms}
+          cycleNotes={cycleNotes}
+          setCycleNotes={setCycleNotes}
+          deleteCycleEntry={deleteCycleEntry}
+          cyclePrediction={cyclePrediction}
+          isAuthenticated={isAuthenticated}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: WELLNESS DASHBOARD
       ════════════════════════════════════════ */}
       {screen === "wellness" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#880e4f", marginBottom: 4 }}>💪 Daily Wellness</div>
-          <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 20 }}>Track your daily health habits</div>
-
-          {/* Water Intake */}
-          <div style={cardStyle}>
-            <div style={sectionTitle}>💧 Water Intake</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              {[...Array(8)].map((_, i) => (
-                <button key={i} onClick={() => setWater(i + 1)} style={{
-                  fontSize: 24, background: i < water ? "#e3f2fd" : "#f5f5f5",
-                  border: i < water ? "2px solid #1976d2" : "2px solid #ddd",
-                  borderRadius: 10, padding: "6px 8px", cursor: "pointer", transition: "all 0.2s",
-                }}>💧</button>
-              ))}
-            </div>
-            <div style={{ color: "#1565c0", fontWeight: "bold", fontSize: 15 }}>
-              {water}/8 glasses {water >= 8 ? "🎉 Goal reached!" : `— ${8 - water} more to go`}
-            </div>
-          </div>
-
-          {/* Sleep Tracker */}
-          <div style={cardStyle}>
-            <div style={sectionTitle}>😴 Sleep Last Night</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 8 }}>
-              {["<5h","5-6h","6-7h","7-8h","8-9h",">9h"].map(s => (
-                <button key={s} onClick={() => setSleep(s)} style={{
-                  background: sleep === s ? "linear-gradient(135deg,#c2185b,#e91e63)" : "#fce4ec",
-                  border: "none", borderRadius: 10, padding: "10px 6px",
-                  color: sleep === s ? "#fff" : "#c2185b",
-                  fontWeight: "bold", fontSize: 13, cursor: "pointer", transition: "all 0.2s",
-                }}>{s}</button>
-              ))}
-            </div>
-            {sleep && (
-              <div style={{ color: "#880e4f", fontSize: 13, marginTop: 6 }}>
-                {["<5h","5-6h"].includes(sleep) ? "😴 You need more rest! Aim for 7-9 hours." : "✨ Great sleep! Your hormones thank you."}
-              </div>
-            )}
-          </div>
-
-          {/* Today's mood summary */}
-          <div style={cardStyle}>
-            <div style={sectionTitle}>😊 Today's Mood</div>
-            <div style={{ display: "flex", gap: 10 }}>
-              {["😊","😌","😔","😤","😴"].map(e => (
-                <button key={e} onClick={() => handleMood(e)} style={{
-                  fontSize: 28, background: mood === e ? "#fce4ec" : "rgba(255,255,255,0.7)",
-                  border: mood === e ? "2px solid #e91e63" : "2px solid #f5f5f5",
-                  borderRadius: 12, padding: "6px 10px", cursor: "pointer",
-                }}>{e}</button>
-              ))}
-            </div>
-            {mood && <div style={{ color: "#c2185b", fontSize: 13, marginTop: 8 }}>Current mood: {mood}</div>}
-          </div>
-
-          <button onClick={logWellness} style={btnPrimary}>💾 Save Today's Wellness Data</button>
-
-          {/* Mood History */}
-          {moodHistory.length > 0 && (
-            <div style={{ ...cardStyle, marginTop: 16 }}>
-              <div style={sectionTitle}>📊 Mood History (Last 30 days)</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {moodHistory.slice(0, 14).map((m, i) => (
-                  <div key={i} style={{ background: "#fce4ec", borderRadius: 10, padding: "6px 10px", textAlign: "center" }}>
-                    <div style={{ fontSize: 22 }}>{m.emoji}</div>
-                    <div style={{ fontSize: 10, color: "#ad1457", marginTop: 2 }}>{m.dayKey}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Wellness Log */}
-          {wellnessLog.length > 0 && (
-            <div style={{ ...cardStyle, marginTop: 16 }}>
-              <div style={sectionTitle}>📋 Wellness Log</div>
-              {wellnessLog.slice(0, 7).map((e, i) => (
-                <div key={i} style={{ background: "#f0fff4", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
-                  <div style={{ color: "#2e7d32", fontWeight: "bold", fontSize: 12 }}>{e.date}</div>
-                  <div style={{ color: "#388e3c", fontSize: 13, marginTop: 4 }}>
-                    💧 {e.water}/8 water · 😴 {e.sleep || "—"} sleep · Mood: {e.mood || "—"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <WellnessPage
+          cardStyle={cardStyle}
+          sectionTitle={sectionTitle}
+          btnPrimary={btnPrimary}
+          water={water}
+          setWater={setWater}
+          sleep={sleep}
+          setSleep={setSleep}
+          mood={mood}
+          handleMood={handleMood}
+          logWellness={logWellness}
+          moodHistory={moodHistory}
+          wellnessLog={wellnessLog}
+          activity={activity}
+          setActivity={setActivity}
+          stress={stress}
+          setStress={setStress}
+          weeklySummary={weeklySummary}
+          isAuthenticated={isAuthenticated}
+          syncState={sync}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: TRUSTED CIRCLE
       ════════════════════════════════════════ */}
       {screen === "circle" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#880e4f", marginBottom: 4 }}>👥 Trusted Circle</div>
-          <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 20 }}>Your 3 closest emergency contacts</div>
-
-          {contacts.map((c, i) => (
-            <div key={i} style={{ ...cardStyle, border: "1px solid rgba(194,24,91,0.15)" }}>
-              <div style={{ ...sectionTitle, marginBottom: 12 }}>Contact {i + 1}</div>
-              <input value={c.name} placeholder={`Name (e.g. ${["Mom","Best Friend","Sister"][i] || "Contact"})`}
-                onChange={e => updateContact(i, "name", e.target.value)} style={inputStyle} />
-              <input value={c.phone} placeholder="+91XXXXXXXXXX"
-                onChange={e => updateContact(i, "phone", e.target.value)} style={inputStyle} />
-              <select value={c.relationship} onChange={e => updateContact(i, "relationship", e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
-                {RELATIONSHIP_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-              {c.phone && (
-                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <a href={`sms:${c.phone}?body=${encodeURIComponent(contactAlertMsg())}`} style={{
-                    flex: 1, background: "linear-gradient(135deg,#1565c0,#1976d2)", color: "#fff",
-                    padding: "10px 0", borderRadius: 10, textAlign: "center", textDecoration: "none", fontWeight: "bold", fontSize: 13,
-                  }}>📱 SMS</a>
-                  <a href={`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${encodeURIComponent(contactAlertMsg())}`} target="_blank" rel="noreferrer" style={{
-                    flex: 1, background: "linear-gradient(135deg,#1b5e20,#2e7d32)", color: "#fff",
-                    padding: "10px 0", borderRadius: 10, textAlign: "center", textDecoration: "none", fontWeight: "bold", fontSize: 13,
-                  }}>💬 WhatsApp</a>
-                  <a href={`tel:${c.phone}`} style={{
-                    flex: 1, background: "linear-gradient(135deg,#e65100,#f4511e)", color: "#fff",
-                    padding: "10px 0", borderRadius: 10, textAlign: "center", textDecoration: "none", fontWeight: "bold", fontSize: 13,
-                  }}>📞 Call</a>
-                </div>
-              )}
-            </div>
-          ))}
-          <div style={{ background: "#e8f5e9", borderRadius: 14, padding: 14, border: "1px solid #a5d6a7", textAlign: "center" }}>
-            <div style={{ color: "#2e7d32", fontSize: 13 }}>✅ Your trusted circle is saved automatically. They'll be alerted when you trigger SOS.</div>
-          </div>
-        </div>
+        <TrustedCirclePage
+          cardStyle={cardStyle}
+          sectionTitle={sectionTitle}
+          inputStyle={inputStyle}
+          contacts={contacts}
+          updateContact={updateContact}
+          RELATIONSHIP_OPTIONS={RELATIONSHIP_OPTIONS}
+          contactAlertMsg={contactAlertMsg}
+          saveContacts={saveContacts}
+          isAuthenticated={isAuthenticated}
+          syncState={sync}
+          setScreen={setScreen}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: SAFETY CHECK-IN
       ════════════════════════════════════════ */}
       {screen === "checkin" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#880e4f", marginBottom: 4 }}>⏱️ Safety Check-In</div>
-          <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 20 }}>Schedule a safety timer — if you don't confirm in time, an alert will trigger</div>
-
-          <div style={cardStyle}>
-            <div style={sectionTitle}>⏱️ Set Check-In Timer</div>
-            <label style={{ color: "#c2185b", fontWeight: "bold", fontSize: 13, display: "block", marginBottom: 6 }}>
-              I'll check back in: <span style={{ color: "#e91e63" }}>{checkInMins} minutes</span>
-            </label>
-            <input type="range" min={5} max={120} step={5} value={checkInMins}
-              onChange={e => setCheckInMins(+e.target.value)}
-              style={{ width: "100%", accentColor: "#e91e63", marginBottom: 8 }} />
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#aaa", fontSize: 12, marginBottom: 16 }}>
-              <span>5 min</span><span>30 min</span><span>60 min</span><span>2 hrs</span>
-            </div>
-
-            {/* Quick select */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-              {[10,15,30,45,60,90].map(m => (
-                <button key={m} onClick={() => setCheckInMins(m)} style={{
-                  background: checkInMins === m ? "linear-gradient(135deg,#c2185b,#e91e63)" : "#fce4ec",
-                  border: "none", borderRadius: 10, padding: "8px 14px",
-                  color: checkInMins === m ? "#fff" : "#c2185b",
-                  fontWeight: "bold", fontSize: 13, cursor: "pointer",
-                }}>{m}m</button>
-              ))}
-            </div>
-
-            {!checkInActive ? (
-              <button onClick={startCheckIn} style={btnPrimary}>▶ Start Check-In Timer</button>
-            ) : (
-              <div>
-                <div style={{ background: "linear-gradient(135deg,#e8f5e9,#f1f8e9)", borderRadius: 14, padding: 16, textAlign: "center", marginBottom: 12, border: "2px solid #4caf50" }}>
-                  <div style={{ color: "#2e7d32", fontWeight: "bold", fontSize: 14 }}>✅ Check-In Active</div>
-                  <div style={{ fontSize: 32, fontWeight: "bold", color: "#1b5e20", marginTop: 4 }}>{fmtRemain(checkInRemain)}</div>
-                  <div style={{ color: "#388e3c", fontSize: 12, marginTop: 4 }}>remaining — confirm before timer ends</div>
-                </div>
-                <button onClick={confirmSafe} style={{ ...btnPrimary, background: "linear-gradient(135deg,#2e7d32,#4caf50)", marginBottom: 10 }}>
-                  ✅ I'm Safe — Confirm Check-In
-                </button>
-                <button onClick={confirmSafe} style={{ ...btnPrimary, background: "#f5f5f5", color: "#888" }}>
-                  Cancel Timer
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div style={{ background: "#fff8e1", borderRadius: 14, padding: 14, border: "1px solid #ffe082" }}>
-            <div style={{ fontWeight: "bold", color: "#f57f17", fontSize: 13, marginBottom: 6 }}>💡 How it works</div>
-            <div style={{ color: "#e65100", fontSize: 12, lineHeight: 1.7 }}>
-              1. Set a timer before going somewhere alone<br/>
-              2. A banner alert appears when time expires<br/>
-              3. Tap "I'm Safe" to dismiss, or trigger SOS<br/>
-              4. Best used when travelling alone at night
-            </div>
-          </div>
-        </div>
+        <CheckInPage
+          cardStyle={cardStyle}
+          sectionTitle={sectionTitle}
+          btnPrimary={btnPrimary}
+          checkInMins={checkInMins}
+          setCheckInMins={setCheckInMins}
+          checkInActive={checkInActive}
+          startCheckIn={startCheckIn}
+          checkInRemain={checkInRemain}
+          confirmSafe={confirmSafe}
+          cancelCheckIn={cancelCheckIn}
+          fmtRemain={fmtRemain}
+          isAuthenticated={isAuthenticated}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: SAFE ROUTE
       ════════════════════════════════════════ */}
       {screen === "route" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#880e4f", marginBottom: 4 }}>🗺️ Safe Route</div>
-          <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 20 }}>Plan your journey with safety in mind</div>
-
-          <div style={cardStyle}>
-            <div style={sectionTitle}>📍 Plan Your Route</div>
-            <input value={routeFrom} onChange={e => setRouteFrom(e.target.value)}
-              placeholder="📍 Starting point (e.g. Home, Office)"
-              style={inputStyle} />
-            <input value={routeTo} onChange={e => setRouteTo(e.target.value)}
-              placeholder="🎯 Destination (e.g. Market, Friend's place)"
-              style={{ ...inputStyle, marginBottom: 0 }} />
-            <button style={{ ...btnPrimary, marginTop: 14, opacity: 0.7 }} onClick={() => alert("🗺️ Google Maps integration coming soon!\n\nThis will show safer routes, lit paths, and avoid unsafe areas.")}>
-              🗺️ Find Safe Route (Coming Soon)
-            </button>
-          </div>
-
-          {/* Placeholder map area */}
-          <div style={{
-            background: "linear-gradient(135deg,#e8eaf6,#f3e5f5)", borderRadius: 20, padding: 40,
-            textAlign: "center", border: "2px dashed #9fa8da", marginBottom: 16,
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🗺️</div>
-            <div style={{ color: "#3949ab", fontWeight: "bold", fontSize: 16, marginBottom: 8 }}>
-              Safe Route Map
-            </div>
-            <div style={{ color: "#5c6bc0", fontSize: 13, lineHeight: 1.6 }}>
-              Google Maps integration coming soon.<br/>
-              Will show safer, well-lit routes and avoid unsafe areas.
-            </div>
-          </div>
-
-          {/* Quick share location */}
-          <div style={cardStyle}>
-            <div style={sectionTitle}>📡 Share Live Location</div>
-            <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 12, lineHeight: 1.6 }}>
-              Share your real-time location with your Trusted Circle while travelling.
-            </div>
-            <button onClick={async () => {
-              const loc = await fetchLoc();
-              if (loc) {
-                const msg = `📍 I'm sharing my location:\nhttps://maps.google.com/?q=${loc.lat},${loc.lng}\n— ${APP_NAME}`;
-                const valid = contacts.filter(c => c.phone.trim());
-                if (valid.length) window.open(`https://wa.me/${valid[0].phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`, "_blank");
-                else alert("Add contacts in Trusted Circle first!");
-              } else {
-                alert("Location permission required. Please enable it in your browser.");
-              }
-            }} style={btnPrimary}>📡 Share My Location Now</button>
-          </div>
-
-          <div style={{ background: "#e8f5e9", borderRadius: 14, padding: 14, border: "1px solid #a5d6a7" }}>
-            <div style={{ fontWeight: "bold", color: "#2e7d32", fontSize: 13, marginBottom: 6 }}>🔮 Coming Soon</div>
-            <div style={{ color: "#388e3c", fontSize: 12, lineHeight: 1.7 }}>
-              ✦ Google Maps safer route suggestions<br/>
-              ✦ Avoid poorly lit or high-crime areas<br/>
-              ✦ Live location sharing with trusted contacts<br/>
-              ✦ Estimated arrival time alerts
-            </div>
-          </div>
-        </div>
+        <SafeRoutePage
+          currentLoc={currentLoc}
+          cardStyle={cardStyle}
+          sectionTitle={sectionTitle}
+          inputStyle={inputStyle}
+          btnPrimary={btnPrimary}
+          routeFrom={routeFrom}
+          setRouteFrom={setRouteFrom}
+          routeTo={routeTo}
+          setRouteTo={setRouteTo}
+          fetchLoc={fetchLoc}
+          contacts={contacts}
+          APP_NAME={APP_NAME}
+          isAuthenticated={isAuthenticated}
+          setScreen={setScreen}
+        />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: HEALTH TIPS
       ════════════════════════════════════════ */}
       {screen === "tips" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#880e4f", marginBottom: 4 }}>🌿 Health Tips</div>
-          <div style={{ color: "#ad1457", fontSize: 13, marginBottom: 20 }}>Curated wellness advice for women</div>
-
-          {[
-            { cat: "Nutrition",        color: "#e8f5e9", accent: "#2e7d32", icon: "🥗",
-              tips: ["Eat iron-rich foods (spinach, dates, lentils) during your period","Add flaxseeds to your diet — great for hormonal balance","Reduce processed sugar to improve PCOS symptoms","Calcium + Vitamin D is essential for women's bone health"] },
-            { cat: "Mental Wellbeing", color: "#fce4ec", accent: "#c2185b", icon: "🧘",
-              tips: ["Track mood alongside your cycle — they're connected","Journaling 5 minutes a day reduces stress hormones","Limit social media during PMS week for better mood","Deep breathing activates the parasympathetic nervous system"] },
-            { cat: "Fitness",          color: "#e8eaf6", accent: "#3949ab", icon: "🏃",
-              tips: ["Light yoga during period reduces cramp intensity","Strength training boosts estrogen and bone density","Walk 30 min daily — it's enough to see hormonal improvements","Avoid intense workouts 2 days before your period"] },
-            { cat: "Sleep & Recovery", color: "#fff3e0", accent: "#e65100", icon: "😴",
-              tips: ["Your sleep quality directly affects your cycle regularity","Avoid screens 1 hour before bed for better melatonin production","Sleep 7–9 hours to keep cortisol levels in check","A consistent sleep schedule regulates hormones naturally"] },
-          ].map(({ cat, color, accent, icon, tips }) => (
-            <div key={cat} style={{ background: color, borderRadius: 20, padding: 18, marginBottom: 14, border: `1px solid ${accent}30` }}>
-              <div style={{ fontWeight: "bold", color: accent, fontSize: 16, marginBottom: 10 }}>{icon} {cat}</div>
-              {tips.map(t => (
-                <div key={t} style={{ display: "flex", gap: 10, marginBottom: 8 }}>
-                  <span style={{ color: accent, fontSize: 16, flexShrink: 0 }}>✦</span>
-                  <span style={{ color: accent, fontSize: 13, lineHeight: 1.5 }}>{t}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
+        <TipsPage />
       )}
 
       {/* ════════════════════════════════════════
           SCREEN: EMERGENCY & SAFETY
       ════════════════════════════════════════ */}
       {screen === "emergency" && (
-        <div style={{ padding: 20, paddingBottom: 80 }}>
-          <div style={{ fontWeight: "bold", fontSize: 22, color: "#b71c1c", marginBottom: 4 }}>🚨 Emergency & Safety</div>
-          <div style={{ color: "#c62828", fontSize: 13, marginBottom: 20 }}>Quick access to safety tools</div>
-
-          {/* SOS with countdown */}
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            {sosCountdown !== null ? (
-              /* COUNTDOWN UI */
-              <div>
-                <div style={{ position: "relative", display: "inline-block", marginBottom: 16 }}>
-                  <svg width="180" height="180" style={{ transform: "rotate(-90deg)" }}>
-                    <circle cx="90" cy="90" r="80" fill="none" stroke="#ffcdd2" strokeWidth="10" />
-                    <circle cx="90" cy="90" r="80" fill="none" stroke="#f44336" strokeWidth="10"
-                      strokeDasharray="503"
-                      strokeDashoffset={503 - (503 * (5 - sosCountdown) / 5)}
-                      style={{ transition: "stroke-dashoffset 1s linear" }} />
-                  </svg>
-                  <div style={{
-                    position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-                    textAlign: "center",
-                  }}>
-                    <div style={{ fontSize: 56, fontWeight: "bold", color: "#b71c1c", lineHeight: 1 }}>{sosCountdown}</div>
-                    <div style={{ fontSize: 13, color: "#c62828", marginTop: 4 }}>SOS sending...</div>
-                  </div>
-                </div>
-                <br />
-                <button onClick={cancelSOS} style={{
-                  background: "#fff", border: "2px solid #e53935", borderRadius: 24,
-                  color: "#c62828", padding: "12px 36px", fontSize: 16, fontWeight: "bold",
-                  cursor: "pointer", boxShadow: "0 4px 15px rgba(244,67,54,0.2)",
-                }}>✕ Cancel SOS</button>
-              </div>
-            ) : (
-              /* NORMAL SOS BUTTON */
-              <button onClick={triggerSOSCountdown} style={{
-                width: 160, height: 160, borderRadius: "50%",
-                background: emergencyActive ? "linear-gradient(135deg,#b71c1c,#d32f2f)" : "linear-gradient(135deg,#d32f2f,#f44336)",
-                border: "6px solid rgba(255,255,255,0.4)",
-                color: "#fff", fontSize: 28, fontWeight: "bold", cursor: "pointer",
-                boxShadow: "0 8px 30px rgba(244,67,54,0.5)",
-                animation: "pulse 2s infinite", transition: "all 0.3s",
-              }}>
-                🚨<br /><span style={{ fontSize: 18 }}>SOS</span>
-              </button>
-            )}
-
-            {/* SOS sent confirmation */}
-            {sosSent && (
-              <div style={{ marginTop: 14, background: "#ffebee", borderRadius: 14, padding: "14px 18px", border: "1px solid #ef9a9a" }}>
-                <div style={{ color: "#c62828", fontWeight: "bold", fontSize: 15 }}>🚨 SOS Triggered!</div>
-                <div style={{ color: "#b71c1c", fontSize: 13, marginTop: 6, lineHeight: 1.6 }}>
-                  📱 <b>SMS app opened</b> — tap Send to alert contacts<br />
-                  💬 <b>WhatsApp also opened</b> as backup<br />
-                  📍 Your live location is included
-                </div>
-              </div>
-            )}
-
-            {/* Location display */}
-            {currentLoc && (
-              <div style={{ marginTop: 10, color: "#c62828", fontSize: 12 }}>
-                📍 {currentLoc.lat.toFixed(4)}, {currentLoc.lng.toFixed(4)} · <a href={`https://maps.google.com/?q=${currentLoc.lat},${currentLoc.lng}`} target="_blank" rel="noreferrer" style={{ color: "#b71c1c", fontWeight: "bold" }}>Open Maps</a>
-              </div>
-            )}
-
-            {/* Last SOS info */}
-            {(lastSosTs || lastSosLoc) && (
-              <div style={{ marginTop: 12, background: "#fff8f8", borderRadius: 12, padding: "10px 14px", border: "1px solid #ffcdd2", textAlign: "left" }}>
-                <div style={{ color: "#b71c1c", fontWeight: "bold", fontSize: 12, marginBottom: 4 }}>🕐 Last SOS</div>
-                {lastSosTs  && <div style={{ color: "#c62828", fontSize: 12 }}>{lastSosTs}</div>}
-                {lastSosLoc && <a href={`https://maps.google.com/?q=${lastSosLoc.lat},${lastSosLoc.lng}`} target="_blank" rel="noreferrer" style={{ color: "#e53935", fontSize: 12 }}>📍 Last known location →</a>}
-              </div>
-            )}
-          </div>
-
-          {/* Emergency Contacts (quick view) */}
-          <div style={{ ...cardStyle, marginBottom: 16 }}>
-            <div style={{ fontWeight: "bold", color: "#b71c1c", marginBottom: 6, fontSize: 16 }}>👥 Emergency Contacts</div>
-            <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "#fff8f8", borderRadius: 8, padding: "8px 12px", border: "1px solid #ffcdd2" }}>
-              💡 SMS app opens pre-filled with your number + location. Just tap <b>Send</b>!
-            </div>
-            {contacts.map((c, i) => c.phone ? (
-              <div key={i} style={{ background: "#fff5f5", borderRadius: 12, padding: "10px 14px", marginBottom: 10, border: "1px solid #ffcdd2" }}>
-                <div style={{ color: "#b71c1c", fontWeight: "bold", fontSize: 14, marginBottom: 8 }}>
-                  {c.name || `Contact ${i+1}`} <span style={{ color: "#e53935", fontWeight: "normal", fontSize: 12 }}>({c.relationship})</span>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <a href={`sms:${c.phone}?body=${encodeURIComponent(contactAlertMsg())}`} style={{ flex:1, background:"linear-gradient(135deg,#1565c0,#1976d2)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>📱 SMS</a>
-                  <a href={`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${encodeURIComponent(contactAlertMsg())}`} target="_blank" rel="noreferrer" style={{ flex:1, background:"linear-gradient(135deg,#1b5e20,#2e7d32)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>💬 WA</a>
-                  <a href={`tel:${c.phone}`} style={{ flex:1, background:"linear-gradient(135deg,#e65100,#f4511e)", color:"#fff", padding:"8px 0", borderRadius:10, textAlign:"center", textDecoration:"none", fontWeight:"bold", fontSize:12 }}>📞 Call</a>
-                </div>
-              </div>
-            ) : null)}
-            <button onClick={() => setScreen("circle")} style={{ ...btnPrimary, background: "linear-gradient(135deg,#880e4f,#c2185b)", marginTop: 4 }}>
-              👥 Manage Trusted Circle
-            </button>
-          </div>
-
-          {/* National Helplines */}
-          <div style={{ background: "#fff3e0", borderRadius: 20, padding: 18, border: "1px solid #ffcc80", marginBottom: 14 }}>
-            <div style={{ fontWeight: "bold", color: "#e65100", marginBottom: 14, fontSize: 16 }}>📞 National Helplines</div>
-            {NATIONAL_HELPLINES.map(([name, num]) => (
-              <div key={num} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,152,0,0.2)" }}>
-                <span style={{ color: "#bf360c", fontSize: 14 }}>{name}</span>
-                <a href={`tel:${num}`} style={{ background: "linear-gradient(135deg,#e65100,#f4511e)", color: "#fff", padding: "6px 16px", borderRadius: 20, fontWeight: "bold", fontSize: 14, textDecoration: "none" }}>{num}</a>
-              </div>
-            ))}
-          </div>
-
-          {/* Nearby services */}
-          {currentLoc ? (
-            <div>
-              <a href={`https://www.google.com/maps/search/police+station/@${currentLoc.lat},${currentLoc.lng},15z`} target="_blank" rel="noreferrer"
-                style={{ display:"block", background:"linear-gradient(135deg,#1565c0,#1976d2)", color:"#fff", padding:14, borderRadius:14, textAlign:"center", textDecoration:"none", fontWeight:"bold", marginBottom:10 }}>🗺️ Nearby Police Stations</a>
-              <a href={`https://www.google.com/maps/search/hospital/@${currentLoc.lat},${currentLoc.lng},15z`} target="_blank" rel="noreferrer"
-                style={{ display:"block", background:"linear-gradient(135deg,#2e7d32,#388e3c)", color:"#fff", padding:14, borderRadius:14, textAlign:"center", textDecoration:"none", fontWeight:"bold" }}>🏥 Nearby Hospitals</a>
-            </div>
-          ) : (
-            <button onClick={() => fetchLoc()} style={btnPrimary}>📍 Enable Location for Nearby Help</button>
-          )}
-        </div>
+        <EmergencyPage
+          sosCountdown={sosCountdown}
+          emergencyActive={emergencyActive}
+          triggerSOSCountdown={triggerSOSCountdown}
+          cancelSOS={cancelSOS}
+          sosSent={sosSent}
+          currentLoc={currentLoc}
+          gpsStatus={gpsStatus}
+          lastUpdated={lastUpdated}
+          refreshLocation={refreshLocation}
+          lastSosTs={lastSosTs}
+          lastSosLoc={lastSosLoc}
+          contacts={contacts}
+          setScreen={setScreen}
+          contactAlertMsg={contactAlertMsg}
+          NATIONAL_HELPLINES={NATIONAL_HELPLINES}
+          fetchLoc={fetchLoc}
+          cardStyle={cardStyle}
+          btnPrimary={btnPrimary}
+          sosReport={sosReport}
+          isAuthenticated={isAuthenticated}
+          retrySOS={() => sendServerSOS()}
+          resolveSOS={resolveSOS}
+          dismissSOSReport={() => { setSosReport(null); setEmergencyActive(false); }}
+          resolving={resolving}
+          locationErrorCode={locError || (gpsStatus === "Permission Denied" ? "PERMISSION_DENIED" : null)}
+        />
       )}
+
+      </main>
+
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        confirmLabel={confirmState?.confirmLabel}
+        danger={confirmState?.danger}
+        onConfirm={confirmState?.onConfirm}
+        onCancel={() => setConfirmState(null)}
+      />
 
       {/* ── BOTTOM NAV ── */}
       {screen === "home" && (
-        <div style={{
+        <nav aria-label={t("nav.main")} style={{
           position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
           width: "100%", maxWidth: 430, background: "#fff",
           borderTop: "1px solid rgba(194,24,91,0.15)",
@@ -1169,21 +1055,21 @@ export default function App() {
           boxShadow: "0 -4px 20px rgba(194,24,91,0.1)",
         }}>
           {[
-            { icon: "🏠", label: "Home",    s: "home"      },
-            { icon: "📅", label: "Tracker", s: "tracker"   },
-            { icon: "💬", label: "Chat",    s: "chat"      },
-            { icon: "💪", label: "Wellness",s: "wellness"  },
-            { icon: "🚨", label: "Safety",  s: "emergency" },
+            { icon: "🏠", label: t("nav.home"),    s: "home"      },
+            { icon: "📅", label: t("nav.tracker"), s: "tracker"   },
+            { icon: "💬", label: t("nav.chat"),    s: "chat"      },
+            { icon: "💪", label: t("nav.wellness"),s: "wellness"  },
+            { icon: "🚨", label: t("nav.safety"),  s: "emergency" },
           ].map(({ icon, label, s }) => (
-            <button key={s} onClick={() => setScreen(s)} style={{
+            <button key={s} onClick={() => setScreen(s)} aria-current={screen === s ? "page" : undefined} style={{
               flex: 1, background: "none", border: "none", cursor: "pointer",
-              padding: "6px 0", display: "flex", flexDirection: "column", alignItems: "center",
+              padding: "6px 0", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 48,
             }}>
-              <span style={{ fontSize: 20 }}>{icon}</span>
-              <span style={{ fontSize: 10, color: screen === s ? "#c2185b" : "#999", marginTop: 2 }}>{label}</span>
+              <span aria-hidden="true" style={{ fontSize: 20 }}>{icon}</span>
+              <span style={{ fontSize: 11, color: screen === s ? "#c2185b" : "#6b6b6b", marginTop: 2, fontWeight: screen === s ? "bold" : "normal" }}>{label}</span>
             </button>
           ))}
-        </div>
+        </nav>
       )}
     </div>
   );

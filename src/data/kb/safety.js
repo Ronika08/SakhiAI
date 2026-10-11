@@ -1,0 +1,88 @@
+import { entry } from './helpers'
+
+const HELP = {
+  en: '📞 India: Emergency 112 · Women Helpline 1091 / 181 · Ambulance 108 · Police 100 · Tele-MANAS 14416.',
+  hi: '📞 भारत: आपातकाल 112 · महिला हेल्पलाइन 1091 / 181 · एम्बुलेंस 108 · पुलिस 100 · Tele-MANAS 14416।',
+  kn: '📞 ಭಾರತ: ತುರ್ತು 112 · ಮಹಿಳಾ ಸಹಾಯವಾಣಿ 1091 / 181 · ಆಂಬ್ಯುಲೆನ್ಸ್ 108 · ಪೊಲೀಸ್ 100 · Tele-MANAS 14416.',
+}
+
+export const SAFETY = [
+  entry('safety-travel', 'safety', 4,
+    { en: ['travel safe', 'safe travel', 'travelling alone', 'traveling alone', 'night travel', 'safety tips', 'staying safe', 'walking alone', 'cab safety', 'safe at night', 'auto safety', 'ride safety'],
+      hi: ['सुरक्षित यात्रा', 'अकेले यात्रा', 'रात में सुरक्षा', 'सुरक्षा टिप्स', 'अकेले चल'],
+      kn: ['ಸುರಕ್ಷಿತ ಪ್ರಯಾಣ', 'ಒಬ್ಬರೇ ಪ್ರಯಾಣ', 'ರಾತ್ರಿ ಸುರಕ್ಷತೆ', 'ಸುರಕ್ಷತಾ ಸಲಹೆ', 'ಒಬ್ಬಳೇ ನಡೆ'] },
+    { en: 'Safe travel tips', hi: 'सुरक्षित यात्रा के सुझाव', kn: 'ಸುರಕ್ಷಿತ ಪ್ರಯಾಣ ಸಲಹೆ' },
+    { en: 'Share your live location or start a Check-In before you travel, note the cab or auto number and send it to someone, keep your phone charged, prefer well-lit and busy routes, stay alert instead of using headphones, and trust your instincts — it is fine to change seats, get off, or enter a shop if something feels wrong. Save your Trusted Circle in SakhiAI and know where the SOS button is.',
+      hi: 'यात्रा से पहले अपनी लाइव लोकेशन साझा करें या Check-In शुरू करें, कैब/ऑटो का नंबर किसी को भेजें, फ़ोन चार्ज रखें, रोशनी वाले और भीड़ वाले रास्ते चुनें, हेडफ़ोन की जगह सतर्क रहें और अपनी अंतर्ज्ञान पर भरोसा करें — कुछ गलत लगे तो सीट बदलना, उतर जाना या दुकान में चले जाना ठीक है। SakhiAI में अपना Trusted Circle सेव करें और SOS बटन कहाँ है जानें।',
+      kn: 'ಪ್ರಯಾಣದ ಮೊದಲು ನಿಮ್ಮ ಲೈವ್ ಸ್ಥಳ ಹಂಚಿಕೊಳ್ಳಿ ಅಥವಾ Check-In ಆರಂಭಿಸಿ, ಕ್ಯಾಬ್/ಆಟೋ ಸಂಖ್ಯೆಯನ್ನು ಯಾರಿಗಾದರೂ ಕಳುಹಿಸಿ, ಫೋನ್ ಚಾರ್ಜ್ ಇರಲಿ, ಬೆಳಕಿರುವ ಮತ್ತು ಜನಸಂದಣಿಯ ದಾರಿ ಆರಿಸಿ, ಹೆಡ್‌ಫೋನ್ ಬದಲು ಎಚ್ಚರದಿಂದಿರಿ ಮತ್ತು ನಿಮ್ಮ ಸಹಜ ಅರಿವನ್ನು ನಂಬಿ — ಏನಾದರೂ ತಪ್ಪೆನಿಸಿದರೆ ಸೀಟು ಬದಲಿಸುವುದು, ಇಳಿಯುವುದು ಅಥವಾ ಅಂಗಡಿಗೆ ಹೋಗುವುದು ಸರಿ. SakhiAI ಯಲ್ಲಿ Trusted Circle ಉಳಿಸಿ ಮತ್ತು SOS ಬಟನ್ ಎಲ್ಲಿದೆ ಎಂದು ತಿಳಿಯಿರಿ.' }),
+
+  entry('safety-harassment', 'safety', 8,
+    { en: ['harass', 'eve teasing', 'groped', 'inappropriate touch', 'sexual harassment', 'workplace harassment', 'catcall', 'stalk', 'being watched', 'domestic violence', 'abusive', 'abuse', 'report harassment', 'women helpline'],
+      hi: ['छेड़छाड़', 'उत्पीड़न', 'यौन उत्पीड़न', 'घरेलू हिंसा', 'पीछा करना', 'हेल्पलाइन', 'शिकायत'],
+      kn: ['ಕಿರುಕುಳ', 'ಲೈಂಗಿಕ ಕಿರುಕುಳ', 'ಕೌಟುಂಬಿಕ ಹಿಂಸೆ', 'ಹಿಂಬಾಲಿಸ', 'ಸಹಾಯವಾಣಿ', 'ದೂರು'] },
+    { en: 'Harassment & abuse', hi: 'उत्पीड़न और हिंसा', kn: 'ಕಿರುಕುಳ ಮತ್ತು ಹಿಂಸೆ' },
+    { en: `It is not your fault, and you deserve to be safe. If you are in immediate danger call 112. You can also call the Women Helpline 1091 or 181, or the police on 100. Move towards other people, tell someone you trust, and keep evidence (messages, screenshots, dates) safe. At work you can complain to the Internal Committee. SakhiAI's SOS can alert your Trusted Circle.\n\n${HELP.en}`,
+      hi: `यह आपकी गलती नहीं है और आप सुरक्षित रहने की हक़दार हैं। तुरंत खतरा हो तो 112 पर कॉल करें। महिला हेल्पलाइन 1091 या 181, या पुलिस 100 पर भी कॉल कर सकती हैं। दूसरे लोगों की ओर जाएँ, किसी भरोसेमंद को बताएँ और सबूत (संदेश, स्क्रीनशॉट, तारीखें) सुरक्षित रखें। कार्यस्थल पर आंतरिक समिति में शिकायत कर सकती हैं। SakhiAI का SOS आपके Trusted Circle को अलर्ट कर सकता है।\n\n${HELP.hi}`,
+      kn: `ಇದು ನಿಮ್ಮ ತಪ್ಪಲ್ಲ, ಮತ್ತು ನೀವು ಸುರಕ್ಷಿತವಾಗಿರಲು ಅರ್ಹರು. ತಕ್ಷಣದ ಅಪಾಯವಿದ್ದರೆ 112 ಗೆ ಕರೆ ಮಾಡಿ. ಮಹಿಳಾ ಸಹಾಯವಾಣಿ 1091 ಅಥವಾ 181, ಅಥವಾ ಪೊಲೀಸ್ 100 ಗೂ ಕರೆ ಮಾಡಬಹುದು. ಇತರ ಜನರ ಕಡೆ ಹೋಗಿ, ನಂಬಿಕಸ್ತರಿಗೆ ತಿಳಿಸಿ, ಸಾಕ್ಷ್ಯ (ಸಂದೇಶ, ಸ್ಕ್ರೀನ್‌ಶಾಟ್, ದಿನಾಂಕ) ಸುರಕ್ಷಿತವಾಗಿಡಿ. ಕೆಲಸದ ಸ್ಥಳದಲ್ಲಿ ಆಂತರಿಕ ಸಮಿತಿಗೆ ದೂರು ನೀಡಬಹುದು. SakhiAI ಯ SOS ನಿಮ್ಮ Trusted Circle ಗೆ ಎಚ್ಚರಿಕೆ ನೀಡಬಹುದು.\n\n${HELP.kn}` },
+    { critical: true }),
+
+  entry('safety-digital', 'safety', 3,
+    { en: ['online safety', 'cyber', 'online harassment', 'blackmail', 'morphed', 'leaked photo', 'fake profile', 'password safety', 'phone safety', 'digital safety', 'sextortion', 'cyberbullying'],
+      hi: ['ऑनलाइन सुरक्षा', 'साइबर', 'ब्लैकमेल', 'फर्जी प्रोफ़ाइल', 'फोटो लीक', 'ऑनलाइन उत्पीड़न'],
+      kn: ['ಆನ್‌ಲೈನ್ ಸುರಕ್ಷತೆ', 'ಸೈಬರ್', 'ಬ್ಲ್ಯಾಕ್‌ಮೇಲ್', 'ನಕಲಿ ಪ್ರೊಫೈಲ್', 'ಫೋಟೋ ಸೋರಿಕೆ'] },
+    { en: 'Online safety', hi: 'ऑनलाइन सुरक्षा', kn: 'ಆನ್‌ಲೈನ್ ಸುರಕ್ಷತೆ' },
+    { en: 'Use strong, different passwords and two-step verification, keep social profiles private, and never share intimate photos or OTPs. If someone threatens or blackmails you online, do not pay or delete anything: take screenshots, block the person, and report at cybercrime.gov.in or call the cybercrime helpline 1930. You can also call 112 if you feel in danger.',
+      hi: 'मज़बूत और अलग-अलग पासवर्ड व टू-स्टेप वेरिफ़िकेशन इस्तेमाल करें, सोशल प्रोफ़ाइल प्राइवेट रखें, और निजी फ़ोटो या OTP किसी से साझा न करें। कोई ऑनलाइन धमकाए या ब्लैकमेल करे तो पैसे न दें और कुछ डिलीट न करें: स्क्रीनशॉट लें, उसे ब्लॉक करें, और cybercrime.gov.in पर रिपोर्ट करें या साइबर हेल्पलाइन 1930 पर कॉल करें। खतरा लगे तो 112 पर भी कॉल कर सकती हैं।',
+      kn: 'ಬಲವಾದ, ಬೇರೆ ಬೇರೆ ಪಾಸ್‌ವರ್ಡ್ ಮತ್ತು ಟೂ-ಸ್ಟೆಪ್ ವೆರಿಫಿಕೇಶನ್ ಬಳಸಿ, ಸಾಮಾಜಿಕ ಪ್ರೊಫೈಲ್ ಖಾಸಗಿಯಾಗಿಡಿ, ಖಾಸಗಿ ಫೋಟೋ ಅಥವಾ OTP ಯಾರಿಗೂ ಹಂಚಬೇಡಿ. ಯಾರಾದರೂ ಆನ್‌ಲೈನ್‌ನಲ್ಲಿ ಬೆದರಿಸಿದರೆ ಅಥವಾ ಬ್ಲ್ಯಾಕ್‌ಮೇಲ್ ಮಾಡಿದರೆ ಹಣ ಕೊಡಬೇಡಿ, ಏನನ್ನೂ ಅಳಿಸಬೇಡಿ: ಸ್ಕ್ರೀನ್‌ಶಾಟ್ ತೆಗೆದು, ಅವರನ್ನು ಬ್ಲಾಕ್ ಮಾಡಿ, cybercrime.gov.in ನಲ್ಲಿ ವರದಿ ಮಾಡಿ ಅಥವಾ ಸೈಬರ್ ಸಹಾಯವಾಣಿ 1930 ಗೆ ಕರೆ ಮಾಡಿ. ಅಪಾಯ ಅನಿಸಿದರೆ 112 ಗೂ ಕರೆ ಮಾಡಬಹುದು.' }),
+
+  entry('safety-sos-howto', 'safety', 4,
+    { en: ['how to use sos', 'how does sos work', 'what does sos do', 'trusted circle', 'check-in', 'check in feature', 'safe route', 'share location', 'how do i use the app'],
+      hi: ['sos कैसे', 'एसओएस कैसे', 'ट्रस्टेड सर्कल', 'चेक-इन', 'लोकेशन शेयर', 'सेफ रूट'],
+      kn: ['sos ಹೇಗೆ', 'ಎಸ್‌ಒಎಸ್ ಹೇಗೆ', 'ಟ್ರಸ್ಟೆಡ್ ಸರ್ಕಲ್', 'ಚೆಕ್-ಇನ್', 'ಸ್ಥಳ ಹಂಚಿಕೊಳ್ಳ', 'ಸೇಫ್ ರೂಟ್'] },
+    { en: 'How SOS and Trusted Circle work', hi: 'SOS और Trusted Circle कैसे काम करते हैं', kn: 'SOS ಮತ್ತು Trusted Circle ಹೇಗೆ ಕೆಲಸ ಮಾಡುತ್ತವೆ' },
+    { en: 'Add up to 3 people in Trusted Circle. Press SOS: after a 5-second countdown (you can cancel) SakhiAI gets your location and opens your SMS and WhatsApp apps with the message — you must press Send. Without internet, GPS and SMS can still work, but map, address lookup and server alerts need internet. If you are signed in and alert channels are set up, SakhiAI also sends an alert and honestly shows whether it was accepted, pending or failed. Always call 112 in real danger.',
+      hi: 'Trusted Circle में 3 लोगों तक जोड़ें। SOS दबाएँ: 5 सेकंड की उलटी गिनती (रद्द कर सकती हैं) के बाद SakhiAI आपकी लोकेशन लेता है और संदेश के साथ SMS व WhatsApp खोलता है — आपको Send दबाना होगा। बिना इंटरनेट GPS और SMS चल सकते हैं, पर नक्शा, पता खोज और सर्वर अलर्ट के लिए इंटरनेट चाहिए। साइन-इन हों और अलर्ट चैनल सेट हों तो SakhiAI अलर्ट भी भेजता है और ईमानदारी से दिखाता है कि वह स्वीकार हुआ, लंबित है या विफल। असली खतरे में हमेशा 112 पर कॉल करें।',
+      kn: 'Trusted Circle ನಲ್ಲಿ 3 ಜನರವರೆಗೆ ಸೇರಿಸಿ. SOS ಒತ್ತಿ: 5 ಸೆಕೆಂಡ್ ಎಣಿಕೆಯ ನಂತರ (ರದ್ದು ಮಾಡಬಹುದು) SakhiAI ನಿಮ್ಮ ಸ್ಥಳ ಪಡೆದು ಸಂದೇಶದೊಂದಿಗೆ SMS ಮತ್ತು WhatsApp ತೆರೆಯುತ್ತದೆ — ನೀವು Send ಒತ್ತಬೇಕು. ಇಂಟರ್ನೆಟ್ ಇಲ್ಲದೆ GPS ಮತ್ತು SMS ಕೆಲಸ ಮಾಡಬಹುದು, ಆದರೆ ನಕ್ಷೆ, ವಿಳಾಸ ಹುಡುಕಾಟ ಮತ್ತು ಸರ್ವರ್ ಎಚ್ಚರಿಕೆಗೆ ಇಂಟರ್ನೆಟ್ ಬೇಕು. ಸೈನ್ ಇನ್ ಆಗಿ ಎಚ್ಚರಿಕೆ ಚಾನೆಲ್ ಹೊಂದಿಸಿದ್ದರೆ SakhiAI ಎಚ್ಚರಿಕೆಯನ್ನೂ ಕಳುಹಿಸಿ ಅದು ಸ್ವೀಕೃತ, ಬಾಕಿ ಅಥವಾ ವಿಫಲ ಎಂದು ಪ್ರಾಮಾಣಿಕವಾಗಿ ತೋರಿಸುತ್ತದೆ. ನಿಜವಾದ ಅಪಾಯದಲ್ಲಿ ಯಾವಾಗಲೂ 112 ಗೆ ಕರೆ ಮಾಡಿ.' }),
+]
+
+export const EMERGENCY = [
+  entry('emergency-when', 'emergency', 11,
+    { en: ['when to call emergency', 'when should i call 112', 'emergency number', 'ambulance number', 'police number', 'helpline number', 'emergency numbers', 'phone number for help', 'what number', 'is it an emergency', 'when to go to hospital', 'when to go to the er', 'emergency symptoms'],
+      hi: ['आपातकालीन नंबर', 'इमरजेंसी नंबर', 'हेल्पलाइन नंबर', 'एम्बुलेंस नंबर', 'पुलिस नंबर', 'कब कॉल करें', 'अस्पताल कब जाएं'],
+      kn: ['ತುರ್ತು ಸಂಖ್ಯೆ', 'ಹೆಲ್ಪ್‌ಲೈನ್ ಸಂಖ್ಯೆ', 'ಆಂಬ್ಯುಲೆನ್ಸ್ ಸಂಖ್ಯೆ', 'ಪೊಲೀಸ್ ಸಂಖ್ಯೆ', 'ಯಾವಾಗ ಕರೆ', 'ಆಸ್ಪತ್ರೆಗೆ ಯಾವಾಗ'] },
+    { en: 'Emergency numbers & when to get help', hi: 'आपातकालीन नंबर', kn: 'ತುರ್ತು ಸಂಖ್ಯೆಗಳು' },
+    { en: `${HELP.en}\n\nCall 112 or go to the nearest hospital for: trouble breathing, chest pain, fainting, heavy bleeding that will not stop, severe pain, bleeding or severe pain in pregnancy, seizures, signs of stroke (face drooping, weakness, slurred speech), suspected poisoning or overdose, or any situation where you or someone else is in danger. The emergency numbers above work from the Emergency screen even without internet (tap to call).`,
+      hi: `${HELP.hi}\n\nइन स्थितियों में 112 पर कॉल करें या नज़दीकी अस्पताल जाएँ: साँस लेने में तकलीफ़, सीने में दर्द, बेहोशी, न रुकने वाली भारी ब्लीडिंग, तेज़ दर्द, गर्भावस्था में ब्लीडिंग या तेज़ दर्द, दौरे, स्ट्रोक के संकेत (चेहरा टेढ़ा, कमज़ोरी, अस्पष्ट बोली), ज़हर या ओवरडोज़ का शक, या कोई भी स्थिति जहाँ आप या कोई और खतरे में हो। ऊपर के नंबर इमरजेंसी स्क्रीन से बिना इंटरनेट भी (टैप करके) कॉल हो सकते हैं।`,
+      kn: `${HELP.kn}\n\nಈ ಸಂದರ್ಭಗಳಲ್ಲಿ 112 ಗೆ ಕರೆ ಮಾಡಿ ಅಥವಾ ಹತ್ತಿರದ ಆಸ್ಪತ್ರೆಗೆ ಹೋಗಿ: ಉಸಿರಾಟದ ತೊಂದರೆ, ಎದೆ ನೋವು, ಮೂರ್ಛೆ, ನಿಲ್ಲದ ಭಾರೀ ರಕ್ತಸ್ರಾವ, ತೀವ್ರ ನೋವು, ಗರ್ಭಾವಸ್ಥೆಯಲ್ಲಿ ರಕ್ತಸ್ರಾವ ಅಥವಾ ತೀವ್ರ ನೋವು, ಫಿಟ್ಸ್, ಪಾರ್ಶ್ವವಾಯುವಿನ ಲಕ್ಷಣ (ಮುಖ ಓರೆ, ದೌರ್ಬಲ್ಯ, ಅಸ್ಪಷ್ಟ ಮಾತು), ವಿಷ ಅಥವಾ ಹೆಚ್ಚುವರಿ ಔಷಧದ ಶಂಕೆ, ಅಥವಾ ನೀವು/ಇತರರು ಅಪಾಯದಲ್ಲಿರುವ ಯಾವುದೇ ಸಂದರ್ಭ. ಮೇಲಿನ ಸಂಖ್ಯೆಗಳನ್ನು ತುರ್ತು ಪರದೆಯಿಂದ ಇಂಟರ್ನೆಟ್ ಇಲ್ಲದೆಯೂ (ಟ್ಯಾಪ್ ಮಾಡಿ) ಕರೆ ಮಾಡಬಹುದು.` },
+    { critical: true, action: 'OPEN_EMERGENCY' }),
+
+  entry('emergency-chest-breath', 'emergency', 14,
+    { en: ['chest pain', 'can\'t breathe', 'cannot breathe', 'trouble breathing', 'difficulty breathing', 'shortness of breath', 'stroke', 'seizure', 'heart attack', 'unconscious', 'overdose', 'poison'],
+      hi: ['सीने में दर्द', 'साँस नहीं', 'सांस नहीं', 'साँस लेने में', 'सांस लेने में', 'दिल का दौरा', 'दौरा पड़', 'ज़हर', 'जहर', 'बेहोश पड़'],
+      kn: ['ಎದೆ ನೋವು', 'ಉಸಿರಾಡಲು ಆಗು', 'ಉಸಿರಾಟದ ತೊಂದರೆ', 'ಹೃದಯಾಘಾತ', 'ಫಿಟ್ಸ್', 'ವಿಷ', 'ಪ್ರಜ್ಞೆ ತಪ್ಪಿ'] },
+    { en: 'Medical emergency', hi: 'चिकित्सा आपातकाल', kn: 'ವೈದ್ಯಕೀಯ ತುರ್ತು' },
+    { en: `🚑 This may be a medical emergency. Call 112 (ambulance 108) now or go to the nearest hospital, and ask someone to stay with you. Do not wait to see if it passes. I cannot assess how serious it is — you need a healthcare professional right away.\n\n${HELP.en}`,
+      hi: `🚑 यह चिकित्सा आपातकाल हो सकता है। अभी 112 (एम्बुलेंस 108) पर कॉल करें या नज़दीकी अस्पताल जाएँ और किसी को अपने पास रहने को कहें। इंतज़ार न करें। मैं गंभीरता नहीं आँक सकती — आपको तुरंत स्वास्थ्य पेशेवर चाहिए।\n\n${HELP.hi}`,
+      kn: `🚑 ಇದು ವೈದ್ಯಕೀಯ ತುರ್ತು ಆಗಿರಬಹುದು. ಈಗಲೇ 112 (ಆಂಬ್ಯುಲೆನ್ಸ್ 108) ಗೆ ಕರೆ ಮಾಡಿ ಅಥವಾ ಹತ್ತಿರದ ಆಸ್ಪತ್ರೆಗೆ ಹೋಗಿ, ಯಾರನ್ನಾದರೂ ನಿಮ್ಮ ಬಳಿ ಇರಲು ಕೇಳಿ. ಕಾಯಬೇಡಿ. ಇದು ಎಷ್ಟು ಗಂಭೀರ ಎಂದು ನಾನು ನಿರ್ಣಯಿಸಲಾರೆ — ನಿಮಗೆ ತಕ್ಷಣ ಆರೋಗ್ಯ ವೃತ್ತಿಪರರು ಬೇಕು.\n\n${HELP.kn}` },
+    { critical: true, action: 'OPEN_EMERGENCY' }),
+
+  entry('emergency-danger', 'emergency', 15,
+    { en: ['someone is following me', 'being followed', 'i am in danger', 'i\'m in danger', 'i feel unsafe', 'i am not safe', 'help me', 'being attacked', 'attacked me', 'kidnap', 'break in', 'breaking in'],
+      hi: ['मेरा पीछा', 'मुझे बचाओ', 'बचाओ', 'मैं खतरे में', 'असुरक्षित', 'मुझ पर हमला', 'किडनैप', 'अपहरण'],
+      kn: ['ನನ್ನನ್ನು ಹಿಂಬಾಲಿಸ', 'ಕಾಪಾಡಿ', 'ನಾನು ಅಪಾಯದಲ್ಲಿ', 'ಅಸುರಕ್ಷಿತ', 'ನನ್ನ ಮೇಲೆ ಹಲ್ಲೆ', 'ಅಪಹರಣ'] },
+    { en: 'In danger', hi: 'खतरे में', kn: 'ಅಪಾಯದಲ್ಲಿ' },
+    { en: `🚨 Your safety comes first. If you are in immediate danger call 112 now. Move to a well-lit, busy place (a shop, petrol pump, police station), keep your phone with you, and use the SOS button to alert your Trusted Circle with your location. Staying on a call with someone you trust can help.\n\n${HELP.en}`,
+      hi: `🚨 आपकी सुरक्षा सबसे पहले है। तुरंत खतरे में हों तो अभी 112 पर कॉल करें। किसी रोशनी वाली, भीड़ वाली जगह (दुकान, पेट्रोल पंप, पुलिस स्टेशन) की ओर जाएँ, फ़ोन पास रखें और अपनी लोकेशन के साथ Trusted Circle को अलर्ट करने के लिए SOS बटन दबाएँ। किसी भरोसेमंद से फ़ोन पर बात करते रहना मदद कर सकता है।\n\n${HELP.hi}`,
+      kn: `🚨 ನಿಮ್ಮ ಸುರಕ್ಷತೆ ಮೊದಲು. ತಕ್ಷಣದ ಅಪಾಯದಲ್ಲಿದ್ದರೆ ಈಗಲೇ 112 ಗೆ ಕರೆ ಮಾಡಿ. ಬೆಳಕಿರುವ, ಜನಸಂದಣಿಯ ಸ್ಥಳಕ್ಕೆ (ಅಂಗಡಿ, ಪೆಟ್ರೋಲ್ ಬಂಕ್, ಪೊಲೀಸ್ ಠಾಣೆ) ಹೋಗಿ, ಫೋನ್ ಬಳಿಯೇ ಇಡಿ, ಮತ್ತು ನಿಮ್ಮ ಸ್ಥಳದೊಂದಿಗೆ Trusted Circle ಗೆ ಎಚ್ಚರಿಕೆ ನೀಡಲು SOS ಬಟನ್ ಬಳಸಿ. ನಂಬಿಕಸ್ತರೊಂದಿಗೆ ಫೋನ್‌ನಲ್ಲಿ ಮಾತನಾಡುತ್ತಲೇ ಇರುವುದು ಸಹಾಯ ಮಾಡಬಹುದು.\n\n${HELP.kn}` },
+    { critical: true, action: 'OPEN_EMERGENCY' }),
+
+  entry('emergency-selfharm', 'emergency', 16,
+    { en: ['suicide', 'kill myself', 'end my life', 'want to die', 'self harm', 'self-harm', 'hurt myself', 'no reason to live'],
+      hi: ['आत्महत्या', 'मरना चाहती', 'खुद को खत्म', 'खुद को नुकसान', 'जीना नहीं चाहती'],
+      kn: ['ಆತ್ಮಹತ್ಯೆ', 'ಸಾಯಬೇಕು', 'ಸಾಯಲು ಬಯಸ', 'ನನ್ನನ್ನೇ ಕೊಲ್ಲ', 'ಬದುಕಲು ಇಷ್ಟವಿಲ್ಲ'] },
+    { en: 'Thoughts of self-harm', hi: 'खुद को नुकसान के विचार', kn: 'ಸ್ವಯಂ ಹಾನಿಯ ಆಲೋಚನೆ' },
+    { en: '💗 I am really glad you told me, and I am sorry you are hurting. You deserve support right now. If you might act on these thoughts or are in danger, please call 112 or go to the nearest emergency room, and try not to be alone — reach out to someone you trust. You can also talk to a trained counsellor: Tele-MANAS 14416 (free, 24×7 in India).',
+      hi: '💗 आपने मुझे बताया, यह अच्छा किया, और आप जो दर्द झेल रही हैं उसके लिए मुझे खेद है। आप अभी सहारे की हक़दार हैं। अगर आप इन विचारों पर अमल कर सकती हैं या खतरे में हैं, तो कृपया 112 पर कॉल करें या नज़दीकी इमरजेंसी में जाएँ, और अकेली न रहें — किसी भरोसेमंद से संपर्क करें। आप प्रशिक्षित काउंसलर से भी बात कर सकती हैं: Tele-MANAS 14416 (निःशुल्क, 24×7)।',
+      kn: '💗 ನೀವು ನನಗೆ ಹೇಳಿದ್ದು ಒಳ್ಳೆಯದಾಯಿತು, ಮತ್ತು ನೀವು ನೋವಿನಲ್ಲಿರುವುದಕ್ಕೆ ವಿಷಾದವಿದೆ. ನಿಮಗೆ ಈಗ ಬೆಂಬಲ ಸಿಗಬೇಕು. ಈ ಆಲೋಚನೆಗಳಂತೆ ನಡೆದುಕೊಳ್ಳುವ ಸಾಧ್ಯತೆ ಇದ್ದರೆ ಅಥವಾ ಅಪಾಯದಲ್ಲಿದ್ದರೆ ದಯವಿಟ್ಟು 112 ಗೆ ಕರೆ ಮಾಡಿ ಅಥವಾ ಹತ್ತಿರದ ತುರ್ತು ವಿಭಾಗಕ್ಕೆ ಹೋಗಿ, ಒಬ್ಬರೇ ಇರಬೇಡಿ — ನಂಬಿಕಸ್ತರನ್ನು ಸಂಪರ್ಕಿಸಿ. ತರಬೇತಿ ಪಡೆದ ಸಲಹೆಗಾರರೊಂದಿಗೂ ಮಾತನಾಡಬಹುದು: Tele-MANAS 14416 (ಉಚಿತ, 24×7).' },
+    { critical: true }),
+]

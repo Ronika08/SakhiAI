@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (lint, test, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Install backend dependencies (needed by the root test:backend script)
+        run: npm --prefix backend ci
+      - name: Dependency check (every import is declared)
+        run: npm run check:deps -- --require-installed
+      - name: Dependency audit (fails on high/critical)
+        run: npm audit --audit-level=high
+      - name: Lint (frontend + backend)
+        run: npm run lint
+      - name: Unit & component tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: https://api.example.com   # placeholder — build validation only
+      - name: Verify PWA / offline build (manifest, service worker, precache, no secrets)
+        run: npm run verify:build
+      - name: Ensure no secrets leaked into the bundle
+        run: |
+          if grep -rEq "AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}|GEMINI_API_KEY|JWT_SECRET" dist; then
+            echo "Possible secret found in the frontend bundle"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+          retention-days: 7
+
+  backend:
+    name: Backend (validate, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Syntax / import validation
+        run: npm run check
+      - name: Automated tests (external services are mocked; no real keys needed)
+        run: npm test
+      - name: Environment validation (placeholder values only)
+        # Uses throw-away values so the validator itself is exercised. Real
+        # secrets are NEVER required by CI; set them as GitHub Secrets only
+        # in the deploy workflow of your hosting provider.
+        run: npm run validate:env
+        env:
+          NODE_ENV: development
+          JWT_SECRET: ci-placeholder-secret-ci-placeholder-secret
+          MONGODB_URI: mongodb://127.0.0.1:27017/ci
+          DEFAULT_AI_PROVIDER: gemini
+          GEMINI_API_KEY: ci-placeholder
+          GEMINI_MODEL: gemini-3.5-flash
+      - name: Dependency audit (fails on high/critical)
+        run: npm audit --audit-level=high
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Block committed env files / key patterns
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -vE '\.env\.example$'; then
+            echo "A real .env file is tracked in git"; exit 1
+          fi
+          if git grep -nE "AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9]{32,}|-----BEGIN (RSA |EC )?PRIVATE KEY-----" -- . ':!*.md' ':!package-lock.json' ':!backend/package-lock.json'; then
+            echo "Possible secret committed"; exit 1
+          fi
